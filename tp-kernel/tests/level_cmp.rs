@@ -75,9 +75,9 @@ fn rand_level(rng: &mut dyn rand::Rng) -> Level {
     match rng.random_range(0..5) {
         0 => Level::Zero,
         1 => Level::Param(rng.random_range(0..20)),
-        2 => rand_level(rng).succ(),
-        3 => rand_level(rng).when(rand_simple_kind(rng)),
-        4 => rand_level(rng).max(rand_level(rng)),
+        2 => Level::Succ(rand_level(rng).into()),
+        3 => Level::When(rand_simple_kind(rng).into(), rand_level(rng).into()),
+        4 => Level::Max(rand_level(rng).into(), rand_level(rng).into()),
         _ => unreachable!(),
     }
 }
@@ -97,8 +97,8 @@ fn rand_kind(rng: &mut dyn rand::Rng) -> Kind {
         1 => Kind::Prop,
         2 => Kind::Type,
         3 => Kind::Param(rng.random_range(0..20)),
-        4 => rand_kind(rng).trunc(),
-        5 => rand_kind(rng).max(rand_kind(rng)),
+        4 => Kind::Trunc(rand_kind(rng).into()),
+        5 => Kind::Max(rand_kind(rng).into(), rand_kind(rng).into()),
         _ => unreachable!(),
     }
 }

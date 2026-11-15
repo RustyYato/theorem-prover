@@ -69,8 +69,8 @@ fn rand_kind(rng: &mut dyn rand::Rng) -> Kind {
         1 => Kind::Prop,
         2 => Kind::Type,
         3 => Kind::Param(rng.random_range(0..20)),
-        4 => rand_kind(rng).trunc(),
-        5 => rand_kind(rng).max(rand_kind(rng)),
+        4 => Kind::Trunc(rand_kind(rng).into()),
+        5 => Kind::Max(rand_kind(rng).into(), rand_kind(rng).into()),
         _ => unreachable!(),
     }
 }
