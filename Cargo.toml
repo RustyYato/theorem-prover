@@ -1,6 +1,6 @@
 [workspace]
 
 resolver = "3"
-members = ["tp-kernel"]
+members = ["tp-kernel", "tp-parser"]
 
 [workspace.dependencies]
