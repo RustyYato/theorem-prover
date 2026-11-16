@@ -324,6 +324,20 @@ impl Universe {
     pub fn le(&self, other: &Self) -> bool {
         self.kind <= other.kind && (self.kind.le_prop() || self.level.le(&other.level))
     }
+
+    pub fn succ(&self) -> Self {
+        Self {
+            kind: self.kind.clone(),
+            level: self.level.clone().succ(),
+        }
+    }
+
+    pub fn type_of(&self) -> Self {
+        Self {
+            kind: Kind::Type,
+            level: self.level.clone().succ().when(self.kind.clone()),
+        }
+    }
 }
 
 #[cfg(test)]
