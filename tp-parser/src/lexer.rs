@@ -1,3 +1,5 @@
+#![allow(unreachable_code)]
+
 use std::range::Range;
 
 use bstr::BStr;
@@ -21,19 +23,45 @@ pub enum Kind {
 
     #[regex(r"[_\p{XID_Start}]\p{XID_Continue}*")]
     Ident,
+    #[regex(r"[0-9]+")]
+    Natural,
 
     #[token("forall")]
     Forall,
     #[token("fn")]
     Fn,
+    #[token("def")]
+    Def,
+    #[token("Univ")]
+    Univ,
+    #[token("Type")]
+    Type,
+    #[token("Prop")]
+    Prop,
+    #[token("SProp")]
+    SProp,
+    #[token("max")]
+    Max,
+    #[token("when")]
+    When,
+    #[token("trunc")]
+    Trunc,
+    #[token(":=")]
+    ColonEq,
+    #[token("=")]
+    Eq,
     #[token("=>")]
     BoldArrow,
     #[token(":")]
     Colon,
+    #[token(";")]
+    Semicolon,
     #[token(",")]
     Comma,
     #[token(".")]
     Period,
+    #[token("+")]
+    Add,
     #[token("(")]
     LParen,
     #[token(")")]
@@ -178,18 +206,25 @@ impl<'text> Lexer<'text> {
 
     pub fn lex(&mut self) -> Token<'text> {
         let token = self.peek;
-        self.peek = Token {
-            kind: (self.lexer.next().transpose())
-                .safe_unwrap()
-                .unwrap_or(Kind::Eof),
-            bytes: bstr::BStr::new(self.lexer.slice()),
-            span: self.lexer.span().into(),
-        };
 
-        if let Kind::Newline = token.kind {
-            self.newlines.push(token.span.start);
+        loop {
+            self.peek = Token {
+                kind: (self.lexer.next().transpose())
+                    .safe_unwrap()
+                    .unwrap_or(Kind::Eof),
+                bytes: bstr::BStr::new(self.lexer.slice()),
+                span: self.lexer.span().into(),
+            };
+
+            if let Kind::Newline = self.peek.kind {
+                self.newlines.push(token.span.start);
+            }
+
+            if let Kind::Newline | Kind::WhiteSpace = self.peek.kind {
+                continue;
+            }
+
+            return token;
         }
-
-        token
     }
 }

@@ -1,0 +1,11 @@
+[package]
+name = "tp-compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+color-eyre = "0.6.5"
+eyre = "0.6.14"
+fs-err = "3.3.2"
+tp-parser = { version = "0.1.0", path = "../tp-parser" }

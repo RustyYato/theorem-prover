@@ -4,6 +4,7 @@ use std::mem::DropGuard;
 
 use triomphe::Arc;
 pub use univ::{Kind, Level, Universe};
+use ustr::Ustr;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Term {
@@ -41,6 +42,12 @@ impl Term {
     pub fn var(id: usize) -> Self {
         Self {
             repr: TermRepr::Var(id),
+        }
+    }
+
+    pub fn global(id: Ustr) -> Self {
+        Self {
+            repr: TermRepr::Global(id),
         }
     }
 
