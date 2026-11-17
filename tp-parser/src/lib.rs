@@ -1,14 +1,18 @@
 mod lexer;
 
-use std::assert_matches;
+use std::{assert_matches, num::NonZero};
 
 use lexer::{Kind::*, Lexer, Token};
+use tp_ast as a;
+use ustr::Ustr;
 
 use crate::lexer::Kind;
 pub use lexer::Newlines;
 
 pub struct Parser<'text> {
     lexer: lexer::Lexer<'text>,
+    ident_id: u32,
+    invalid_ident: Ustr,
 }
 
 macro_rules! is_ident {
@@ -37,6 +41,8 @@ impl<'text> Parser<'text> {
     fn new_(text: &'text [u8]) -> Self {
         Self {
             lexer: Lexer::new(text),
+            ident_id: 0,
+            invalid_ident: Ustr::from("<invalid-ident>"),
         }
     }
 
@@ -66,10 +72,20 @@ impl<'text> Parser<'text> {
         unreachable!("{:?}", self.lexer.peek_token().span())
     }
 
-    fn parse_ident(&mut self) {
+    fn parse_ident(&mut self) -> a::Ident {
         let token = self.lexer.lex();
 
         is_ident!(assert token.kind());
+        self.ident_id = self.ident_id.strict_add(1);
+
+        a::Ident {
+            id: NonZero::new(self.ident_id).unwrap(),
+            val: if is_ident!(check token.kind()) {
+                Ustr::from(token.lexeme())
+            } else {
+                self.invalid_ident
+            },
+        }
     }
 
     pub fn parse_file(mut self) -> lexer::Newlines {
@@ -120,11 +136,13 @@ impl<'text> Parser<'text> {
             }
             Univ => {
                 self.parse(Univ);
-                self.parse_universe();
+                let u = self.parse_universe();
+                dbg!(u);
             }
             Type => {
                 self.parse(Type);
-                self.parse_univ_level(UnivPrec::All);
+                let l = self.parse_univ_level(UnivPrec::All);
+                dbg!(l);
             }
             Prop => {
                 self.parse(Prop);
@@ -142,27 +160,30 @@ impl<'text> Parser<'text> {
         }
     }
 
-    fn parse_universe(&mut self) {
+    fn parse_universe(&mut self) -> a::Universe {
         if self.try_parse(LParen) {
-            self.parse_universe();
+            let u = self.parse_universe();
             self.parse(RParen);
-            return;
+            return u;
         }
 
-        self.parse_univ_sort(UnivPrec::All);
-        self.parse(Semicolon);
-        self.parse_univ_level(UnivPrec::All);
+        let sort = self.parse_univ_sort(UnivPrec::Bound);
+        let level = self.parse_univ_level(UnivPrec::Bound);
+
+        a::Universe { sort, level }
     }
 
-    fn parse_univ_sort(&mut self, univ_prec: UnivPrec) {
+    fn parse_univ_sort(&mut self, univ_prec: UnivPrec) -> a::Sort {
         match self.lexer.peek() {
             LParen => {
                 self.parse(LParen);
-                self.parse_univ_sort(UnivPrec::All);
+                let s = self.parse_univ_sort(UnivPrec::All);
                 self.parse(RParen);
+                s
             }
             Ident => {
-                self.parse_ident();
+                let name = self.parse_ident();
+                a::Sort::param(name)
             }
             Max => {
                 if matches!(univ_prec, UnivPrec::Bound) {
@@ -170,9 +191,11 @@ impl<'text> Parser<'text> {
                 }
 
                 self.parse(Max);
+                let mut sorts = Vec::new();
                 while is_ident!(check self.lexer.peek()) {
-                    self.parse_univ_sort(UnivPrec::Bound);
+                    sorts.push(self.parse_univ_sort(UnivPrec::Bound));
                 }
+                a::Sort::max(sorts)
             }
             Trunc => {
                 if matches!(univ_prec, UnivPrec::Bound) {
@@ -180,30 +203,35 @@ impl<'text> Parser<'text> {
                 }
 
                 self.parse(Trunc);
-                self.parse_univ_sort(UnivPrec::Bound);
+                self.parse_univ_sort(UnivPrec::Bound).trunc()
             }
             Type => {
                 self.parse(Type);
+                a::Sort::type_()
             }
             Prop => {
                 self.parse(Prop);
+                a::Sort::prop()
             }
             SProp => {
                 self.parse(SProp);
+                a::Sort::sprop()
             }
             _ => self.unreachable(),
         }
     }
 
-    fn parse_univ_level(&mut self, univ_prec: UnivPrec) {
-        match self.lexer.peek() {
+    fn parse_univ_level(&mut self, univ_prec: UnivPrec) -> a::Level {
+        let l = match self.lexer.peek() {
             LParen => {
                 self.parse(LParen);
-                self.parse_univ_level(UnivPrec::All);
+                let l = self.parse_univ_level(UnivPrec::All);
                 self.parse(RParen);
+                l
             }
             Natural => {
                 self.parse(Natural);
+                a::Level::nat(0)
             }
             Max => {
                 if matches!(univ_prec, UnivPrec::Bound) {
@@ -211,9 +239,11 @@ impl<'text> Parser<'text> {
                 }
 
                 self.parse(Max);
+                let mut levels = Vec::new();
                 while is_ident!(check self.lexer.peek()) {
-                    self.parse_univ_level(UnivPrec::Bound);
+                    levels.push(self.parse_univ_level(UnivPrec::Bound));
                 }
+                a::Level::max(levels)
             }
             When => {
                 if matches!(univ_prec, UnivPrec::Bound) {
@@ -221,20 +251,28 @@ impl<'text> Parser<'text> {
                 }
 
                 self.parse(When);
-                self.parse_univ_sort(UnivPrec::Bound);
-                self.parse_univ_level(UnivPrec::Bound);
+                let s = self.parse_univ_sort(UnivPrec::Bound);
+                let l = self.parse_univ_level(UnivPrec::Bound);
+                l.when(s)
             }
             ident if is_ident!(check ident) => {
-                self.parse_ident();
-                if matches!(univ_prec, UnivPrec::All) && self.try_parse(Add) {
-                    self.parse(Natural);
-                }
-                return;
+                let name = self.parse_ident();
+                let offset = if matches!(univ_prec, UnivPrec::All) && self.try_parse(Add) {
+                    let n = self.parse(Natural);
+                    0
+                } else {
+                    0
+                };
+                return a::Level::param(name, offset);
             }
             _ => self.unreachable(),
-        }
+        };
+
         if matches!(univ_prec, UnivPrec::All) && self.try_parse(Add) {
-            self.parse(Natural);
+            let n = self.parse(Natural);
+            l.add(0)
+        } else {
+            l
         }
     }
 }

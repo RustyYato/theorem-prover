@@ -232,6 +232,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "erasable"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "437cfb75878119ed8265685c41a115724eae43fb7cc5a0bf0e4ecc3b803af1c4"
+dependencies = [
+ "autocfg",
+ "scopeguard",
+]
+
+[[package]]
 name = "eyre"
 version = "0.6.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -412,6 +422,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -424,6 +440,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "ptr-union"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fafe29e31c1fa74064ef2838faeec0e1de1fbd5d64c891d37a6fb686e3d56548"
+dependencies = [
+ "autocfg",
+ "erasable",
+ "paste",
 ]
 
 [[package]]
@@ -535,6 +562,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "slice-dst"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93a9d7bbfeec8bb3296a8685fbfe89532de4a1f75e691083bae0a2c5de5b313b"
+dependencies = [
+ "autocfg",
+ "erasable",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -584,6 +621,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tp-ast"
+version = "0.1.0"
+dependencies = [
+ "erasable",
+ "ptr-union",
+ "slice-dst",
+ "ustr",
+]
+
+[[package]]
 name = "tp-compiler"
 version = "0.1.0"
 dependencies = [
@@ -609,6 +656,8 @@ version = "0.1.0"
 dependencies = [
  "bstr",
  "logos",
+ "tp-ast",
+ "ustr",
 ]
 
 [[package]]

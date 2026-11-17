@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 bstr = "1.13.1"
 logos = "0.16.1"
+tp-ast = { version = "0.1.0", path = "../tp-ast" }
+ustr = "1.1.0"
