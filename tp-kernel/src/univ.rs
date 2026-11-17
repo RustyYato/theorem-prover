@@ -3,13 +3,13 @@ use std::cmp::Ordering;
 use triomphe::Arc;
 
 #[derive(Debug, Clone)]
-pub enum Kind {
+pub enum Sort {
     SProp,
     Prop,
     Type,
     Param(u32),
-    Trunc(Arc<Kind>),
-    Max(Arc<Kind>, Arc<Kind>),
+    Trunc(Arc<Sort>),
+    Max(Arc<Sort>, Arc<Sort>),
 }
 
 #[derive(Debug, Clone)]
@@ -17,18 +17,18 @@ pub enum Level {
     Zero,
     Param(u32),
     Succ(Arc<Level>),
-    When(Arc<Kind>, Arc<Level>),
+    When(Arc<Sort>, Arc<Level>),
     Max(Arc<Level>, Arc<Level>),
 }
 
 #[derive(Debug, Clone)]
 pub struct Universe {
-    pub kind: Kind,
+    pub sort: Sort,
     pub level: Level,
 }
 
-impl Eq for Kind {}
-impl PartialEq for Kind {
+impl Eq for Sort {}
+impl PartialEq for Sort {
     fn eq(&self, other: &Self) -> bool {
         if self.fast_eq(other) {
             return true;
@@ -38,37 +38,37 @@ impl PartialEq for Kind {
     }
 }
 
-impl PartialOrd for Kind {
+impl PartialOrd for Sort {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // handle all combinations of sprop, prop, type, and param
         // since they are easy and cheap to check, then fall back to
         // general alg
         match (self, other) {
-            (Kind::SProp, Kind::SProp) | (Kind::Prop, Kind::Prop) | (Kind::Type, Kind::Type) => {
+            (Sort::SProp, Sort::SProp) | (Sort::Prop, Sort::Prop) | (Sort::Type, Sort::Type) => {
                 return Some(std::cmp::Ordering::Equal);
             }
-            (Kind::Param(i), Kind::Param(j)) => {
+            (Sort::Param(i), Sort::Param(j)) => {
                 return if i == j { Some(Ordering::Equal) } else { None };
             }
-            (Kind::Param(_), Kind::Prop) | (Kind::Prop, Kind::Param(_)) => return None,
-            (Kind::SProp, Kind::Param(_))
-            | (Kind::Param(_), Kind::Type)
-            | (Kind::SProp, Kind::Prop)
-            | (Kind::SProp, Kind::Type)
-            | (Kind::Prop, Kind::Type) => {
+            (Sort::Param(_), Sort::Prop) | (Sort::Prop, Sort::Param(_)) => return None,
+            (Sort::SProp, Sort::Param(_))
+            | (Sort::Param(_), Sort::Type)
+            | (Sort::SProp, Sort::Prop)
+            | (Sort::SProp, Sort::Type)
+            | (Sort::Prop, Sort::Type) => {
                 return Some(Ordering::Less);
             }
-            (Kind::Param(_), Kind::SProp)
-            | (Kind::Type, Kind::Param(_))
-            | (Kind::Prop, Kind::SProp)
-            | (Kind::Type, Kind::SProp)
-            | (Kind::Type, Kind::Prop) => {
+            (Sort::Param(_), Sort::SProp)
+            | (Sort::Type, Sort::Param(_))
+            | (Sort::Prop, Sort::SProp)
+            | (Sort::Type, Sort::SProp)
+            | (Sort::Type, Sort::Prop) => {
                 return Some(Ordering::Greater);
             }
-            (Kind::Max(_, _), _)
-            | (_, Kind::Max(_, _))
-            | (Kind::Trunc(_), _)
-            | (_, Kind::Trunc(_)) => (),
+            (Sort::Max(_, _), _)
+            | (_, Sort::Max(_, _))
+            | (Sort::Trunc(_), _)
+            | (_, Sort::Trunc(_)) => (),
         }
 
         match (self.le(other), other.le(self)) {
@@ -126,13 +126,13 @@ impl Eq for Universe {}
 impl PartialEq for Universe {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        match (self.kind <= Kind::Prop, other.kind <= Kind::Prop) {
-            (true, true) => return self.kind == other.kind,
+        match (self.sort <= Sort::Prop, other.sort <= Sort::Prop) {
+            (true, true) => return self.sort == other.sort,
             (true, false) | (false, true) => return false,
             (false, false) => (),
         }
 
-        if self.kind.fast_eq(&other.kind) && self.level.fast_eq(&other.level) {
+        if self.sort.fast_eq(&other.sort) && self.level.fast_eq(&other.level) {
             return true;
         }
 
@@ -161,7 +161,7 @@ impl PartialOrd for Universe {
     }
 }
 
-impl Kind {
+impl Sort {
     pub fn trunc(self) -> Self {
         Self::Trunc(Arc::new(self))
     }
@@ -181,79 +181,79 @@ impl Kind {
 
     fn eq_sprop(&self) -> bool {
         match self {
-            Kind::SProp => true,
-            Kind::Prop | Kind::Type | Kind::Param(_) => false,
-            Kind::Trunc(kind) => kind.eq_sprop(),
-            Kind::Max(a, b) => a.eq_sprop() && b.eq_sprop(),
+            Sort::SProp => true,
+            Sort::Prop | Sort::Type | Sort::Param(_) => false,
+            Sort::Trunc(sort) => sort.eq_sprop(),
+            Sort::Max(a, b) => a.eq_sprop() && b.eq_sprop(),
         }
     }
 
     fn prop_le(&self) -> bool {
         match self {
-            Kind::SProp | Kind::Param(_) => false,
-            Kind::Prop | Kind::Type => true,
-            Kind::Trunc(kind) => kind.prop_le(),
-            Kind::Max(a, b) => a.prop_le() || b.prop_le(),
+            Sort::SProp | Sort::Param(_) => false,
+            Sort::Prop | Sort::Type => true,
+            Sort::Trunc(sort) => sort.prop_le(),
+            Sort::Max(a, b) => a.prop_le() || b.prop_le(),
         }
     }
 
     fn type_le(&self) -> bool {
         match self {
-            Kind::SProp | Kind::Prop | Kind::Param(_) | Kind::Trunc(_) => false,
-            Kind::Type => true,
-            Kind::Max(a, b) => a.type_le() || b.type_le(),
+            Sort::SProp | Sort::Prop | Sort::Param(_) | Sort::Trunc(_) => false,
+            Sort::Type => true,
+            Sort::Max(a, b) => a.type_le() || b.type_le(),
         }
     }
 
     pub fn trunc_le(&self, other: &Self) -> bool {
         match self {
-            Kind::SProp => true,
-            Kind::Prop | Kind::Type => other.prop_le(),
-            Kind::Max(a, b) => a.trunc_le(other) && b.trunc_le(other),
-            Kind::Trunc(a) => match other {
-                Kind::SProp => a.eq_sprop(),
-                Kind::Prop | Kind::Type => true,
-                Kind::Param(_) => a.eq_sprop(),
-                Kind::Trunc(b) => a.trunc_le(b),
-                Kind::Max(a, b) => self.trunc_le(a) || self.trunc_le(b),
+            Sort::SProp => true,
+            Sort::Prop | Sort::Type => other.prop_le(),
+            Sort::Max(a, b) => a.trunc_le(other) && b.trunc_le(other),
+            Sort::Trunc(a) => match other {
+                Sort::SProp => a.eq_sprop(),
+                Sort::Prop | Sort::Type => true,
+                Sort::Param(_) => a.eq_sprop(),
+                Sort::Trunc(b) => a.trunc_le(b),
+                Sort::Max(a, b) => self.trunc_le(a) || self.trunc_le(b),
             },
-            Kind::Param(i) => match other {
-                Kind::SProp => false,
-                Kind::Trunc(b) => self.trunc_le(b),
-                Kind::Prop | Kind::Type => true,
-                Kind::Param(j) => i == j,
-                Kind::Max(a, b) => self.trunc_le(a) || self.trunc_le(b),
+            Sort::Param(i) => match other {
+                Sort::SProp => false,
+                Sort::Trunc(b) => self.trunc_le(b),
+                Sort::Prop | Sort::Type => true,
+                Sort::Param(j) => i == j,
+                Sort::Max(a, b) => self.trunc_le(a) || self.trunc_le(b),
             },
         }
     }
 
     pub fn le(&self, other: &Self) -> bool {
         match self {
-            Kind::SProp => true,
-            Kind::Prop => other.prop_le(),
-            Kind::Type => other.type_le(),
-            Kind::Max(a, b) => (**a).le(other) && (**b).le(other),
-            Kind::Trunc(a) => match other {
-                Kind::SProp => a.eq_sprop(),
-                Kind::Prop | Kind::Type => true,
-                Kind::Param(_) => a.eq_sprop(),
-                Kind::Trunc(b) => a.trunc_le(b),
-                Kind::Max(a, b) => self.le(a) || self.le(b),
+            Sort::SProp => true,
+            Sort::Prop => other.prop_le(),
+            Sort::Type => other.type_le(),
+            Sort::Max(a, b) => (**a).le(other) && (**b).le(other),
+            Sort::Trunc(a) => match other {
+                Sort::SProp => a.eq_sprop(),
+                Sort::Prop | Sort::Type => true,
+                Sort::Param(_) => a.eq_sprop(),
+                Sort::Trunc(b) => a.trunc_le(b),
+                Sort::Max(a, b) => self.le(a) || self.le(b),
             },
-            Kind::Param(i) => match other {
-                Kind::SProp | Kind::Prop | Kind::Trunc(_) => false,
-                Kind::Type => true,
-                Kind::Param(j) => i == j,
-                Kind::Max(a, b) => self.le(a) || self.le(b),
+            Sort::Param(i) => match other {
+                Sort::SProp | Sort::Prop | Sort::Trunc(_) => false,
+                Sort::Type => true,
+                Sort::Param(j) => i == j,
+                Sort::Max(a, b) => self.le(a) || self.le(b),
             },
         }
     }
 
     fn le_prop(&self) -> bool {
         match self {
-            Kind::SProp | Kind::Prop | Kind::Trunc(_) => true,
-            Kind::Type | Kind::Param(_) => false,
-            Kind::Max(a, b) => (**a).le_prop() && (**b).le_prop(),
+            Sort::SProp | Sort::Prop | Sort::Trunc(_) => true,
+            Sort::Type | Sort::Param(_) => false,
+            Sort::Max(a, b) => (**a).le_prop() && (**b).le_prop(),
         }
     }
 }
@@ -267,7 +267,7 @@ impl Level {
         Self::Max(Arc::new(self), Arc::new(other))
     }
 
-    pub fn when(self, cond: Kind) -> Self {
+    pub fn when(self, cond: Sort) -> Self {
         Self::When(Arc::new(cond), Arc::new(self))
     }
 
@@ -295,22 +295,22 @@ impl Level {
             (Level::Param(_), Level::Zero) => false,
             (Level::Param(i), Level::Param(j)) => i == j && balance >= 0,
             (Level::Zero, Level::When(k, a)) => {
-                balance >= 0 || Kind::Type <= **k && Level::Zero.le_(a, balance)
+                balance >= 0 || Sort::Type <= **k && Level::Zero.le_(a, balance)
             }
-            (Level::Param(_), Level::When(k, a)) => Kind::Type.le(k) && self.le_(a, balance),
+            (Level::Param(_), Level::When(k, a)) => Sort::Type.le(k) && self.le_(a, balance),
             (Level::When(ka, a), Level::When(kb, b)) => {
-                if **ka <= Kind::Prop {
+                if **ka <= Sort::Prop {
                     return Level::Zero.le_(other, balance);
                 }
 
-                if **kb <= Kind::Prop {
+                if **kb <= Sort::Prop {
                     return a.le_(&Level::Zero, balance);
                 }
 
                 a.le_(b, balance)
             }
             (Level::When(k, a), b) => {
-                **k <= Kind::Prop && balance >= 0 || Kind::Type <= **k && a.le_(b, balance)
+                **k <= Sort::Prop && balance >= 0 || Sort::Type <= **k && a.le_(b, balance)
             }
         }
     }
@@ -322,34 +322,34 @@ impl Level {
 
 impl Universe {
     pub fn le(&self, other: &Self) -> bool {
-        self.kind <= other.kind && (self.kind.le_prop() || self.level.le(&other.level))
+        self.sort <= other.sort && (self.sort.le_prop() || self.level.le(&other.level))
     }
 
     pub fn succ(&self) -> Self {
         Self {
-            kind: self.kind.clone(),
+            sort: self.sort.clone(),
             level: self.level.clone().succ(),
         }
     }
 
     pub fn type_of(&self) -> Self {
         Self {
-            kind: Kind::Type,
-            level: self.level.clone().succ().when(self.kind.clone()),
+            sort: Sort::Type,
+            level: self.level.clone().succ().when(self.sort.clone()),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Kind, Level, Universe};
+    use crate::{Level, Sort, Universe};
 
     #[test]
-    fn test_kind_le() {
-        assert!(!Kind::Type.le(&Kind::Prop));
-        assert!(Kind::SProp.trunc().le(&Kind::Param(0)));
-        assert!(Kind::SProp.le(&Kind::Param(0)));
-        assert!(!Kind::Param(0).le(&Kind::SProp));
+    fn test_sort_le() {
+        assert!(!Sort::Type.le(&Sort::Prop));
+        assert!(Sort::SProp.trunc().le(&Sort::Param(0)));
+        assert!(Sort::SProp.le(&Sort::Param(0)));
+        assert!(!Sort::Param(0).le(&Sort::SProp));
     }
 
     fn test_le_refl(l: Level) {
@@ -358,14 +358,14 @@ mod tests {
 
     #[test]
     fn test_level_le() {
-        test_le_refl(Level::Zero.succ().when(Kind::Type));
+        test_le_refl(Level::Zero.succ().when(Sort::Type));
         test_le_refl(Level::Zero.max(Level::Zero.succ()));
-        assert!(Level::Zero.le(&Level::Param(0).succ().when(Kind::Type)));
-        assert!(Level::Zero.le(&Level::Param(0).succ().when(Kind::Prop)));
+        assert!(Level::Zero.le(&Level::Param(0).succ().when(Sort::Type)));
+        assert!(Level::Zero.le(&Level::Param(0).succ().when(Sort::Prop)));
         assert!(
             Level::Zero
-                .when(Kind::Type)
-                .le(&Level::Param(0).succ().when(Kind::Prop))
+                .when(Sort::Type)
+                .le(&Level::Param(0).succ().when(Sort::Prop))
         );
     }
 
@@ -373,12 +373,12 @@ mod tests {
     fn test_univ_eq() {
         assert_eq!(
             Universe {
-                kind: Kind::Param(8).trunc(),
+                sort: Sort::Param(8).trunc(),
                 level: Level::Zero
             },
             Universe {
-                kind: Kind::Param(8).trunc(),
-                level: Level::Param(9).when(Kind::Type)
+                sort: Sort::Param(8).trunc(),
+                level: Level::Param(9).when(Sort::Type)
             }
         )
     }

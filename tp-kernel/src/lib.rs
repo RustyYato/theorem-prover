@@ -3,7 +3,7 @@ pub mod univ;
 use std::mem::DropGuard;
 
 use triomphe::Arc;
-pub use univ::{Kind, Level, Universe};
+pub use univ::{Level, Sort, Universe};
 use ustr::Ustr;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -140,8 +140,8 @@ impl Term {
 
                 let u = match (arg_sort.repr, body_sort.repr) {
                     (TermRepr::Univ(a), TermRepr::Univ(b)) => Universe {
-                        kind: b.kind,
-                        level: a.level.when(a.kind).max(b.level),
+                        sort: b.sort,
+                        level: a.level.when(a.sort).max(b.level),
                     },
                     _ => return None,
                 };

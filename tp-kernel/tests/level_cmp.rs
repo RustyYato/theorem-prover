@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicU64;
 
 use rand::RngExt;
-use tp_kernel::{Kind, Level};
+use tp_kernel::{Sort, Level};
 
 #[test]
 fn test_mt() {
@@ -82,23 +82,23 @@ fn rand_level(rng: &mut dyn rand::Rng) -> Level {
     }
 }
 
-fn rand_simple_kind(rng: &mut dyn rand::Rng) -> Kind {
+fn rand_simple_kind(rng: &mut dyn rand::Rng) -> Sort {
     match rng.random_range(0..3) {
-        0 => Kind::SProp,
-        1 => Kind::Prop,
-        2 => Kind::Type,
+        0 => Sort::SProp,
+        1 => Sort::Prop,
+        2 => Sort::Type,
         _ => unreachable!(),
     }
 }
 
-fn rand_kind(rng: &mut dyn rand::Rng) -> Kind {
+fn rand_kind(rng: &mut dyn rand::Rng) -> Sort {
     match rng.random_range(0..6) {
-        0 => Kind::SProp,
-        1 => Kind::Prop,
-        2 => Kind::Type,
-        3 => Kind::Param(rng.random_range(0..20)),
-        4 => Kind::Trunc(rand_kind(rng).into()),
-        5 => Kind::Max(rand_kind(rng).into(), rand_kind(rng).into()),
+        0 => Sort::SProp,
+        1 => Sort::Prop,
+        2 => Sort::Type,
+        3 => Sort::Param(rng.random_range(0..20)),
+        4 => Sort::Trunc(rand_kind(rng).into()),
+        5 => Sort::Max(rand_kind(rng).into(), rand_kind(rng).into()),
         _ => unreachable!(),
     }
 }

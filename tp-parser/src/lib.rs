@@ -92,7 +92,7 @@ impl<'text> Parser<'text> {
         self.parse_term();
     }
 
-    fn parse_term_list(&mut self) {
+    fn parse_args(&mut self) {
         loop {
             self.parse_ident();
             self.parse(Colon);
@@ -108,13 +108,13 @@ impl<'text> Parser<'text> {
         match self.lexer.peek() {
             Forall => {
                 self.parse(Forall);
-                self.parse_term_list();
+                self.parse_args();
                 self.parse(BoldArrow);
                 self.parse_term();
             }
             Fn => {
                 self.parse(Fn);
-                self.parse_term_list();
+                self.parse_args();
                 self.parse(BoldArrow);
                 self.parse_term();
             }
@@ -124,7 +124,7 @@ impl<'text> Parser<'text> {
             }
             Type => {
                 self.parse(Type);
-                self.parse_univ_level();
+                self.parse_univ_level(UnivPrec::All);
             }
             Prop => {
                 self.parse(Prop);
@@ -149,29 +149,38 @@ impl<'text> Parser<'text> {
             return;
         }
 
-        self.parse_univ_kind();
+        self.parse_univ_sort(UnivPrec::All);
         self.parse(Semicolon);
-        self.parse_univ_level();
+        self.parse_univ_level(UnivPrec::All);
     }
 
-    fn parse_univ_kind(&mut self) {
+    fn parse_univ_sort(&mut self, univ_prec: UnivPrec) {
         match self.lexer.peek() {
             LParen => {
                 self.parse(LParen);
-                self.parse_univ_kind();
+                self.parse_univ_sort(UnivPrec::All);
                 self.parse(RParen);
             }
             Ident => {
                 self.parse_ident();
             }
             Max => {
+                if matches!(univ_prec, UnivPrec::Bound) {
+                    panic!()
+                }
+
                 self.parse(Max);
-                self.parse_univ_kind();
-                self.parse_univ_kind();
+                while is_ident!(check self.lexer.peek()) {
+                    self.parse_univ_sort(UnivPrec::Bound);
+                }
             }
             Trunc => {
+                if matches!(univ_prec, UnivPrec::Bound) {
+                    panic!()
+                }
+
                 self.parse(Trunc);
-                self.parse_univ_kind();
+                self.parse_univ_sort(UnivPrec::Bound);
             }
             Type => {
                 self.parse(Type);
@@ -186,33 +195,51 @@ impl<'text> Parser<'text> {
         }
     }
 
-    fn parse_univ_level(&mut self) {
+    fn parse_univ_level(&mut self, univ_prec: UnivPrec) {
         match self.lexer.peek() {
             LParen => {
                 self.parse(LParen);
-                self.parse_univ_level();
+                self.parse_univ_level(UnivPrec::All);
                 self.parse(RParen);
             }
             Natural => {
                 self.parse(Natural);
             }
             Max => {
+                if matches!(univ_prec, UnivPrec::Bound) {
+                    panic!()
+                }
+
                 self.parse(Max);
-                self.parse_univ_level();
-                self.parse_univ_level();
+                while is_ident!(check self.lexer.peek()) {
+                    self.parse_univ_level(UnivPrec::Bound);
+                }
             }
             When => {
+                if matches!(univ_prec, UnivPrec::Bound) {
+                    panic!()
+                }
+
                 self.parse(When);
-                self.parse_univ_kind();
-                self.parse_univ_level();
+                self.parse_univ_sort(UnivPrec::Bound);
+                self.parse_univ_level(UnivPrec::Bound);
             }
             ident if is_ident!(check ident) => {
                 self.parse_ident();
-                if self.try_parse(Add) {
+                if matches!(univ_prec, UnivPrec::All) && self.try_parse(Add) {
                     self.parse(Natural);
                 }
+                return;
             }
             _ => self.unreachable(),
         }
+        if matches!(univ_prec, UnivPrec::All) && self.try_parse(Add) {
+            self.parse(Natural);
+        }
     }
+}
+
+enum UnivPrec {
+    All,
+    Bound,
 }
