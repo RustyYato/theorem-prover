@@ -88,73 +88,107 @@ impl<'text> Parser<'text> {
         }
     }
 
-    pub fn parse_file(mut self) -> lexer::Newlines {
+    pub fn parse_file(mut self) -> (a::Document, lexer::Newlines) {
+        let mut globals = Vec::new();
         loop {
-            match self.lexer.peek() {
+            globals.push(match self.lexer.peek() {
                 Eof => break,
-                Def => self.parse_def(),
+                Def => a::Global::Definition(self.parse_def()),
+                Axiom => a::Global::Axiom(self.parse_axiom()),
+                Opaque => a::Global::Opaque(self.parse_def()),
                 _ => self.unreachable(),
-            }
+            })
         }
-        self.lexer.finish()
+        (a::Document { globals }, self.lexer.finish())
     }
 
-    fn parse_def(&mut self) {
+    fn parse_def(&mut self) -> a::Definition {
         self.parse(Def);
-        self.parse_ident();
+        let name = self.parse_ident();
         self.parse(Colon);
-        self.parse_term();
+        let ty = self.parse_term();
         self.parse(ColonEq);
-        self.parse_term();
+        let expr = self.parse_term();
+        a::Definition { name, ty, expr }
     }
 
-    fn parse_args(&mut self) {
+    fn parse_axiom(&mut self) -> a::Axiom {
+        self.parse(Def);
+        let name = self.parse_ident();
+        self.parse(Colon);
+        let ty = self.parse_term();
+        a::Axiom { name, ty }
+    }
+
+    fn parse_args(&mut self) -> Vec<a::Argument> {
+        let mut args = Vec::new();
         loop {
-            self.parse_ident();
+            let name = self.parse_ident();
             self.parse(Colon);
-            self.parse_term();
+            let ty = self.parse_term();
+
+            args.push(a::Argument { name, ty });
 
             if !self.try_parse(Comma) || !is_ident!(check self.lexer.peek()) {
-                break;
+                break args;
             }
         }
     }
 
-    fn parse_term(&mut self) {
+    fn parse_term(&mut self) -> a::Term {
         match self.lexer.peek() {
             Forall => {
                 self.parse(Forall);
-                self.parse_args();
+                let args = self.parse_args();
                 self.parse(BoldArrow);
-                self.parse_term();
+                let body = self.parse_term();
+                a::Term::Forall(a::Thin::from(a::SliceWithHeader::new::<Box<_>, _>(
+                    body, args,
+                )))
             }
             Fn => {
                 self.parse(Fn);
-                self.parse_args();
+                let args = self.parse_args();
                 self.parse(BoldArrow);
-                self.parse_term();
+                let body = self.parse_term();
+                a::Term::Forall(a::Thin::from(a::SliceWithHeader::new::<Box<_>, _>(
+                    body, args,
+                )))
             }
             Univ => {
                 self.parse(Univ);
                 let u = self.parse_universe();
-                dbg!(u);
+                a::Term::Univ(u)
             }
             Type => {
                 self.parse(Type);
-                let l = self.parse_univ_level(UnivPrec::All);
-                dbg!(l);
+                let level = self.parse_univ_level(UnivPrec::All);
+                a::Term::Univ(a::Universe {
+                    sort: a::Sort::type_(),
+                    level,
+                })
             }
             Prop => {
                 self.parse(Prop);
+                a::Term::Univ(a::Universe {
+                    sort: a::Sort::prop(),
+                    level: a::Level::nat(0),
+                })
             }
             SProp => {
                 self.parse(SProp);
+                a::Term::Univ(a::Universe {
+                    sort: a::Sort::sprop(),
+                    level: a::Level::nat(0),
+                })
             }
             Natural => {
                 self.parse(Natural);
+                a::Term::Natural(0)
             }
             kind if is_ident!(check kind) => {
-                self.parse_ident();
+                let name = self.parse_ident();
+                a::Term::Variable(name)
             }
             _ => self.unreachable(),
         }

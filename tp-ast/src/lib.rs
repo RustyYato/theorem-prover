@@ -5,15 +5,31 @@ use ptr_union::Union8;
 pub use slice_dst::SliceWithHeader;
 use ustr::Ustr;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Ident {
     pub id: NonZero<u32>,
     pub val: Ustr,
 }
 
+impl core::fmt::Debug for Ident {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ident")
+            .field("id", &self.id)
+            .field("val", &self.val.as_str())
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Document {
+    pub globals: Vec<Global>,
+}
+
 #[derive(Debug, Clone)]
 pub enum Global {
     Definition(Definition),
+    Opaque(Definition),
+    Axiom(Axiom),
 }
 
 #[derive(Debug, Clone)]
@@ -24,11 +40,38 @@ pub struct Definition {
 }
 
 #[derive(Debug, Clone)]
+pub struct Axiom {
+    pub name: Ident,
+    pub ty: Term,
+}
+
+#[derive(Clone)]
 pub enum Term {
     Variable(Ident),
     Univ(Universe),
     Forall(Thin<Box<SliceWithHeader<Term, Argument>>>),
     Lambda(Thin<Box<SliceWithHeader<Term, Argument>>>),
+    Natural(u64),
+}
+
+impl core::fmt::Debug for Term {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Variable(arg0) => f.debug_tuple("Variable").field(arg0).finish(),
+            Self::Univ(arg0) => f.debug_tuple("Univ").field(arg0).finish(),
+            Self::Forall(arg0) => f
+                .debug_struct("Forall")
+                .field("args", &&arg0.slice)
+                .field("body", &arg0.header)
+                .finish(),
+            Self::Lambda(arg0) => f
+                .debug_struct("Lambda")
+                .field("args", &&arg0.slice)
+                .field("body", &arg0.header)
+                .finish(),
+            Self::Natural(arg0) => f.debug_tuple("Natural").field(arg0).finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +82,7 @@ pub struct Forall {
 
 #[derive(Debug, Clone)]
 pub struct Argument {
-    pub args: Ident,
+    pub name: Ident,
     pub ty: Term,
 }
 

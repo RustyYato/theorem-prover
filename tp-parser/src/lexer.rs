@@ -32,6 +32,10 @@ pub enum Kind {
     Fn,
     #[token("def")]
     Def,
+    #[token("axiom")]
+    Axiom,
+    #[token("opaque")]
+    Opaque,
     #[token("Univ")]
     Univ,
     #[token("Type")]

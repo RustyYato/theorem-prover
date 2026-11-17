@@ -10,6 +10,7 @@ fn main() -> eyre::Result {
     let args: Args = clap::Parser::parse();
     let file = fs_err::read(args.path)?;
     let parser = tp_parser::Parser::new(&file);
-    let newlines = parser.parse_file();
+    let (doc, newlines) = parser.parse_file();
+    dbg!(doc);
     Ok(())
 }
