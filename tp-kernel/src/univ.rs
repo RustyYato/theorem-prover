@@ -318,6 +318,13 @@ impl Level {
     pub fn le(&self, other: &Self) -> bool {
         self.le_(other, 0)
     }
+
+    pub fn offset(mut self, offset: u16) -> Level {
+        for _ in 0..offset {
+            self = self.succ()
+        }
+        self
+    }
 }
 
 impl Universe {

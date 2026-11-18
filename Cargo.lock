@@ -638,7 +638,10 @@ dependencies = [
  "color-eyre",
  "eyre",
  "fs-err",
+ "tp-ast",
+ "tp-kernel",
  "tp-parser",
+ "ustr",
 ]
 
 [[package]]

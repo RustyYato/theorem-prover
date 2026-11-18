@@ -8,4 +8,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 color-eyre = "0.6.5"
 eyre = "0.6.14"
 fs-err = "3.3.2"
+tp-ast = { version = "0.1.0", path = "../tp-ast" }
+tp-kernel = { version = "0.1.0", path = "../tp-kernel" }
 tp-parser = { version = "0.1.0", path = "../tp-parser" }
+ustr = "1.1.0"

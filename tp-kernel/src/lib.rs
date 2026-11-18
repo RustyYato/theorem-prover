@@ -28,14 +28,88 @@ enum TermRepr {
     Application(Arc<[Term; 2]>),
 }
 
+#[derive(Default, Debug)]
 pub struct Context {
     types: Vec<Term>,
     globals: ustr::UstrMap<Global>,
 }
 
-struct Global {
-    def: Term,
-    ty: Term,
+#[derive(Debug)]
+enum Global {
+    Definition { def: Term, ty: Term },
+    Opaque { def: Term, ty: Term },
+    Axiom { ty: Term },
+}
+
+impl Context {
+    pub fn add_definition(&mut self, name: Ustr, term: Term, ty: Term) {
+        let t = term.type_of(self);
+        if !t.as_ref().is_some_and(|t| t.is_defeq(&ty, self)) {
+            panic!(
+                "type of term is not equal, expected: {ty:?}, for term: {term:?} which has type: {t:?}"
+            )
+        }
+
+        if !ty.type_of(self).is_some_and(|t| t.is_univ()) {
+            panic!("expected a type but found: {ty:?}")
+        }
+
+        match self.globals.entry(name) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                panic!("duplicate global name")
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(Global::Definition { def: term, ty });
+            }
+        }
+    }
+
+    pub fn add_opaque(&mut self, name: Ustr, term: Term, ty: Term) {
+        let t = term.type_of(self);
+        if !t.as_ref().is_some_and(|t| t.is_defeq(&ty, self)) {
+            panic!(
+                "type of term is not equal, expected: {ty:?}, for term: {term:?} which has type: {t:?}"
+            )
+        }
+
+        if !ty.type_of(self).is_some_and(|t| t.is_univ()) {
+            panic!("expected a type but found: {ty:?}")
+        }
+
+        match self.globals.entry(name) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                panic!("duplicate global name")
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(Global::Opaque { def: term, ty });
+            }
+        }
+    }
+
+    pub fn add_axiom(&mut self, name: Ustr, ty: Term) {
+        if !ty.type_of(self).is_some_and(|t| t.is_univ()) {
+            panic!("expected a type but found: {ty:?}")
+        }
+
+        match self.globals.entry(name) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                panic!("duplicate global name")
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(Global::Axiom { ty });
+            }
+        }
+    }
+}
+
+impl Global {
+    fn ty(&self) -> &Term {
+        match self {
+            Global::Definition { def: _, ty }
+            | Global::Opaque { def: _, ty }
+            | Global::Axiom { ty } => ty,
+        }
+    }
 }
 
 impl Term {
@@ -108,7 +182,7 @@ impl Term {
     pub fn type_(&self, ctx: &mut Context) -> Option<Term> {
         match self.repr {
             TermRepr::Var(idx) => ctx.types.get(idx).cloned(),
-            TermRepr::Global(name) => ctx.globals.get(&name).map(|x| x.ty.clone()),
+            TermRepr::Global(name) => ctx.globals.get(&name).map(|x| x.ty().clone()),
             TermRepr::Univ(ref universe) => Some(Term {
                 repr: TermRepr::Univ(universe.type_of()),
             }),
