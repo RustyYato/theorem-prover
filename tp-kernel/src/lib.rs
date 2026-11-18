@@ -41,16 +41,26 @@ enum Global {
     Axiom { ty: Term },
 }
 
+#[derive(Debug)]
+pub enum TypeError {
+    UnboundLocalVariable,
+    ExpectedUniv { found: Term },
+    MissingGlobalVariable,
+    ExpectedForall { found: Term },
+    ExpectedDefeq { expected: Term, found: Term },
+    //
+}
+
 impl Context {
     pub fn add_definition(&mut self, name: Ustr, term: Term, ty: Term) {
         let t = term.type_of(self);
-        if !t.as_ref().is_some_and(|t| t.is_defeq(&ty, self)) {
+        if !t.as_ref().is_ok_and(|t| t.is_defeq(&ty, self)) {
             panic!(
                 "type of term is not equal, expected: {ty:?}, for term: {term:?} which has type: {t:?}"
             )
         }
 
-        if !ty.type_of(self).is_some_and(|t| t.is_univ()) {
+        if !ty.type_of(self).is_ok_and(|t| t.is_univ()) {
             panic!("expected a type but found: {ty:?}")
         }
 
@@ -66,13 +76,13 @@ impl Context {
 
     pub fn add_opaque(&mut self, name: Ustr, term: Term, ty: Term) {
         let t = term.type_of(self);
-        if !t.as_ref().is_some_and(|t| t.is_defeq(&ty, self)) {
+        if !t.as_ref().is_ok_and(|t| t.is_defeq(&ty, self)) {
             panic!(
                 "type of term is not equal, expected: {ty:?}, for term: {term:?} which has type: {t:?}"
             )
         }
 
-        if !ty.type_of(self).is_some_and(|t| t.is_univ()) {
+        if !ty.type_of(self).is_ok_and(|t| t.is_univ()) {
             panic!("expected a type but found: {ty:?}")
         }
 
@@ -87,7 +97,7 @@ impl Context {
     }
 
     pub fn add_axiom(&mut self, name: Ustr, ty: Term) {
-        if !ty.type_of(self).is_some_and(|t| t.is_univ()) {
+        if !ty.type_of(self).is_ok_and(|t| t.is_univ()) {
             panic!("expected a type but found: {ty:?}")
         }
 
@@ -172,18 +182,26 @@ impl Term {
         self == other
     }
 
-    pub fn type_of(&self, ctx: &mut Context) -> Option<Term> {
+    pub fn type_of(&self, ctx: &mut Context) -> Result<Term, TypeError> {
         let len = ctx.types.len();
         let mut guard = DropGuard::new(ctx, |ctx| ctx.types.truncate(len));
 
         self.type_(&mut guard)
     }
 
-    pub fn type_(&self, ctx: &mut Context) -> Option<Term> {
+    pub fn type_(&self, ctx: &mut Context) -> Result<Term, TypeError> {
         match self.repr {
-            TermRepr::Var(idx) => ctx.types.get(idx).cloned(),
-            TermRepr::Global(name) => ctx.globals.get(&name).map(|x| x.ty().clone()),
-            TermRepr::Univ(ref universe) => Some(Term {
+            TermRepr::Var(idx) => ctx
+                .types
+                .get(idx)
+                .cloned()
+                .ok_or(TypeError::UnboundLocalVariable),
+            TermRepr::Global(name) => ctx
+                .globals
+                .get(&name)
+                .map(|x| x.ty().clone())
+                .ok_or(TypeError::MissingGlobalVariable),
+            TermRepr::Univ(ref universe) => Ok(Term {
                 repr: TermRepr::Univ(universe.type_of()),
             }),
             TermRepr::Lambda(ref lam) => {
@@ -193,14 +211,14 @@ impl Term {
 
                 if !arg_sort.is_univ() {
                     // arg_ty must be a type!
-                    return None;
+                    return Err(TypeError::ExpectedUniv { found: arg_sort });
                 }
 
                 ctx.types.push(arg_ty.clone());
                 let body_ty = body.type_(ctx)?;
                 ctx.types.pop();
 
-                Some(Term {
+                Ok(Term {
                     repr: TermRepr::Forall(Arc::new([arg_ty.clone(), body_ty])),
                 })
             }
@@ -217,10 +235,14 @@ impl Term {
                         sort: b.sort,
                         level: a.level.when(a.sort).max(b.level),
                     },
-                    _ => return None,
+                    (repr, TermRepr::Univ(_)) | (_, repr) => {
+                        return Err(TypeError::ExpectedUniv {
+                            found: Term { repr },
+                        });
+                    }
                 };
 
-                Some(Term {
+                Ok(Term {
                     repr: TermRepr::Univ(u),
                 })
             }
@@ -236,14 +258,21 @@ impl Term {
 
                         (arg_ty, ret_ty)
                     }
-                    _ => return None,
+                    repr => {
+                        return Err(TypeError::ExpectedForall {
+                            found: Term { repr },
+                        });
+                    }
                 };
 
                 if !arg_ty.is_defeq(&app_arg_ty, ctx) {
-                    return None;
+                    return Err(TypeError::ExpectedDefeq {
+                        expected: arg_ty.clone(),
+                        found: app_arg_ty,
+                    });
                 }
 
-                Some(ret_ty.subst(0, &app_arg_ty))
+                Ok(ret_ty.subst(0, &app_arg_ty))
             }
         }
     }

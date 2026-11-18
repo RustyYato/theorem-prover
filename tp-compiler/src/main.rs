@@ -34,6 +34,7 @@ fn translate_doc(doc: &a::Document) -> k::Context {
     let mut nr = NameResolver::default();
 
     for global in &doc.globals {
+        nr.clear();
         match global {
             a::Global::Definition(definition) => ctx.add_definition(
                 definition.name.val,
@@ -77,7 +78,7 @@ impl NameResolver {
     }
 
     fn resolve_level(&mut self, ident: &a::Ident) -> u32 {
-        let len = self.sort.len();
+        let len = self.level.len();
         *self
             .level
             .entry(ident.val)
@@ -94,8 +95,8 @@ impl NameResolver {
 
     fn translate_argument(&mut self, depth: usize, arg: &a::Argument) -> k::Term {
         let term = self.translate_term(depth, &arg.ty);
-        let id = self.names.len();
-        self.names_map.entry(arg.name.val).or_default().push(id);
+        let names_map = self.names_map.entry(arg.name.val).or_default();
+        names_map.push(depth + 1);
         self.names.push(arg.name.val);
         term
     }
@@ -116,7 +117,7 @@ impl NameResolver {
             depth += 1;
         }
 
-        let body = self.translate_term(depth.checked_add(data.slice.len()).unwrap(), &data.header);
+        let body = self.translate_term(depth, &data.header);
 
         self.exit_scope(mark);
 
@@ -203,5 +204,19 @@ impl NameResolver {
                 self.translate_max(levels, Self::translate_level, k::Level::max)
             }
         }
+    }
+
+    fn clear(&mut self) {
+        let Self {
+            names_map,
+            names,
+            level,
+            sort,
+        } = self;
+
+        level.clear();
+        sort.clear();
+        names.clear();
+        names_map.clear();
     }
 }
