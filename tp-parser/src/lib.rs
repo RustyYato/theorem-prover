@@ -184,7 +184,8 @@ impl<'text> Parser<'text> {
             }
             Natural => {
                 self.parse(Natural);
-                a::Term::Natural(0)
+                unimplemented!()
+                // a::Term::Natural(0)
             }
             kind if is_ident!(check kind) => {
                 let name = self.parse_ident();
