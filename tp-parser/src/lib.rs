@@ -263,10 +263,7 @@ impl<'text> Parser<'text> {
                 self.parse(RParen);
                 l
             }
-            Natural => {
-                self.parse(Natural);
-                a::Level::nat(0)
-            }
+            Natural => a::Level::nat(self.parse_level_offset()),
             Max => {
                 if matches!(univ_prec, UnivPrec::Bound) {
                     panic!()
@@ -292,8 +289,7 @@ impl<'text> Parser<'text> {
             ident if is_ident!(check ident) => {
                 let name = self.parse_ident();
                 let offset = if matches!(univ_prec, UnivPrec::All) && self.try_parse(Add) {
-                    let n = self.parse(Natural);
-                    0
+                    self.parse_level_offset()
                 } else {
                     0
                 };
@@ -303,11 +299,15 @@ impl<'text> Parser<'text> {
         };
 
         if matches!(univ_prec, UnivPrec::All) && self.try_parse(Add) {
-            let n = self.parse(Natural);
-            l.add(0)
+            l.add(self.parse_level_offset())
         } else {
             l
         }
+    }
+
+    fn parse_level_offset(&mut self) -> u16 {
+        let tok = self.parse(Natural);
+        tok.lexeme().parse().unwrap()
     }
 }
 

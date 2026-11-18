@@ -192,7 +192,7 @@ impl NameResolver {
 
     fn translate_level(&mut self, level: &a::Level) -> k::Level {
         match level.unpack() {
-            tp_ast::UnpackedLevel::Nat(_) => todo!(),
+            tp_ast::UnpackedLevel::Nat(offset) => k::Level::Zero.offset(offset),
             tp_ast::UnpackedLevel::Param(ident, offset) => {
                 k::Level::Param(self.resolve_level(&ident)).offset(offset)
             }

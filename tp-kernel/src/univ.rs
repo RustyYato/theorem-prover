@@ -264,11 +264,18 @@ impl Level {
     }
 
     pub fn max(self, other: Self) -> Self {
-        Self::Max(Arc::new(self), Arc::new(other))
+        match (self, other) {
+            (Level::Zero, a) | (a, Level::Zero) => a,
+            (a, b) => Self::Max(Arc::new(a), Arc::new(b)),
+        }
     }
 
     pub fn when(self, cond: Sort) -> Self {
-        Self::When(Arc::new(cond), Arc::new(self))
+        match cond {
+            Sort::SProp | Sort::Prop => Self::Zero,
+            Sort::Type => self,
+            _ => Self::When(Arc::new(cond), Arc::new(self)),
+        }
     }
 
     fn fast_eq(&self, other: &Self) -> bool {
