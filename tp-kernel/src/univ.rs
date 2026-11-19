@@ -28,6 +28,7 @@ enum SortKind {
 #[derive(Clone)]
 pub struct Level {
     minv: i32,
+    maxv: i32,
     kind: LevelKind,
 }
 
@@ -41,7 +42,7 @@ impl core::fmt::Debug for Level {
 enum LevelKind {
     Zero,
     Param(u32),
-    Succ(Arc<Level>),
+    Add(Arc<Level>, u16),
     When(Arc<Sort>, Arc<Level>),
     Max(Arc<Level>, Arc<Level>),
 }
@@ -320,10 +321,20 @@ impl Sort {
     }
 }
 
+impl core::ops::Add<u16> for Level {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: u16) -> Self::Output {
+        self.add(rhs)
+    }
+}
+
 impl Level {
     pub fn zero() -> Self {
         Self {
             minv: 0,
+            maxv: 0,
             kind: LevelKind::Zero,
         }
     }
@@ -331,14 +342,41 @@ impl Level {
     pub fn param(i: u32) -> Self {
         Self {
             minv: 0,
+            maxv: 0,
             kind: LevelKind::Param(i),
         }
     }
 
     pub fn succ(self) -> Self {
+        self.add(1)
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn add(mut self, n: u16) -> Self {
+        if ENABLE_NORMALIZATION
+            && let LevelKind::Add(_, ref mut s) = self.kind
+            && *s <= u16::MAX - n
+        {
+            let maxv = self
+                .maxv
+                .checked_add(i32::from(n))
+                .unwrap_or_else(|| panic!("Tried to nest too many levels!"));
+
+            *s += n;
+            self.minv += i32::from(n);
+            self.maxv = maxv;
+            return self;
+        }
+
+        let maxv = self
+            .maxv
+            .checked_add(i32::from(n))
+            .unwrap_or_else(|| panic!("Tried to nest too many levels!"));
+
         Self {
-            minv: self.minv + 1,
-            kind: LevelKind::Succ(self.into()),
+            minv: self.minv + i32::from(n),
+            maxv,
+            kind: LevelKind::Add(self.into(), n),
         }
     }
 
@@ -352,10 +390,11 @@ impl Level {
         }
 
         let minv = self.minv.max(other.minv);
+        let maxv = self.maxv.max(other.maxv);
 
         let kind = LevelKind::Max(Arc::new(self), Arc::new(other));
 
-        Self { minv, kind }
+        Self { minv, maxv, kind }
     }
 
     pub fn when(self, cond: Sort) -> Self {
@@ -373,6 +412,7 @@ impl Level {
 
         Self {
             minv,
+            maxv: self.maxv,
             kind: LevelKind::When(Arc::new(cond), Arc::new(self)),
         }
     }
@@ -380,7 +420,7 @@ impl Level {
     fn fast_eq(&self, other: &Self) -> bool {
         match (&self.kind, &other.kind) {
             (LevelKind::Param(l0), LevelKind::Param(r0)) => l0 == r0,
-            (LevelKind::Succ(l0), LevelKind::Succ(r0)) => l0.fast_eq(r0),
+            (LevelKind::Add(l0, n), LevelKind::Add(r0, m)) => n == m && l0.fast_eq(r0),
             (LevelKind::When(l0, l1), LevelKind::When(r0, r1)) => l0.fast_eq(r0) && l1.fast_eq(r1),
             (LevelKind::Max(l0, l1), LevelKind::Max(r0, r1)) => l0.fast_eq(r0) && l1.fast_eq(r1),
             (a, b) => core::mem::discriminant(a) == core::mem::discriminant(b),
@@ -394,9 +434,11 @@ impl Level {
             (LevelKind::Param(a), LevelKind::Param(b)) => a == b && balance >= 0,
             (LevelKind::Param(_), LevelKind::When(k, a)) => k.type_le() && self.le_(a, balance),
 
-            (LevelKind::Succ(a), LevelKind::Succ(b)) => a.le_(b, balance),
-            (LevelKind::Succ(a), _) => a.le_(other, balance - 1),
-            (_, LevelKind::Succ(b)) => self.le_(b, balance + 1),
+            (LevelKind::Add(a, n), LevelKind::Add(b, m)) => {
+                a.le_(b, balance + i32::from(*m) - i32::from(*n))
+            }
+            (LevelKind::Add(a, n), _) => a.le_(other, balance - i32::from(*n)),
+            (_, LevelKind::Add(b, n)) => self.le_(b, balance + i32::from(*n)),
 
             (LevelKind::Max(a, b), _) => a.le_(other, balance) && b.le_(other, balance),
             (_, LevelKind::Max(a, b)) => self.le_(a, balance) || self.le_(b, balance),
@@ -421,13 +463,6 @@ impl Level {
 
     pub fn le(&self, other: &Self) -> bool {
         self.le_(other, 0)
-    }
-
-    pub fn offset(mut self, offset: u16) -> Level {
-        for _ in 0..offset {
-            self = self.succ()
-        }
-        self
     }
 }
 
