@@ -179,11 +179,11 @@ impl NameResolver {
 
     fn translate_sort(&mut self, sort: &a::Sort) -> k::Sort {
         match sort.unpack() {
-            tp_ast::UnpackedSort::SProp => k::Sort::SProp,
-            tp_ast::UnpackedSort::Prop => k::Sort::Prop,
-            tp_ast::UnpackedSort::Type => k::Sort::Type,
-            tp_ast::UnpackedSort::Param(ident) => k::Sort::Param(self.resolve_sort(&ident)),
-            tp_ast::UnpackedSort::Trunc(sort) => k::Sort::Trunc(self.translate_sort(sort).into()),
+            tp_ast::UnpackedSort::SProp => k::Sort::sprop(),
+            tp_ast::UnpackedSort::Prop => k::Sort::prop(),
+            tp_ast::UnpackedSort::Type => k::Sort::ty(),
+            tp_ast::UnpackedSort::Param(ident) => k::Sort::param(self.resolve_sort(&ident)),
+            tp_ast::UnpackedSort::Trunc(sort) => self.translate_sort(sort).trunc(),
             tp_ast::UnpackedSort::Max(sorts) => {
                 self.translate_max(sorts, Self::translate_sort, k::Sort::max)
             }

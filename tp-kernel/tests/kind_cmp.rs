@@ -65,12 +65,12 @@ fn main() {
 
 fn rand_kind(rng: &mut dyn rand::Rng) -> Sort {
     match rng.random_range(0..6) {
-        0 => Sort::SProp,
-        1 => Sort::Prop,
-        2 => Sort::Type,
-        3 => Sort::Param(rng.random_range(0..20)),
-        4 => Sort::Trunc(rand_kind(rng).into()),
-        5 => Sort::Max(rand_kind(rng).into(), rand_kind(rng).into()),
+        0 => Sort::sprop(),
+        1 => Sort::prop(),
+        2 => Sort::ty(),
+        3 => Sort::param(rng.random_range(0..20)),
+        4 => Sort::trunc(rand_kind(rng)),
+        5 => Sort::max(rand_kind(rng), rand_kind(rng)),
         _ => unreachable!(),
     }
 }
