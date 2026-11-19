@@ -15,4 +15,4 @@ ustr = "1.1.0"
 rand = "0.10.3"
 
 [lints.rust]
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tp_disable_noramlize)'] }
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tp_disable_normalize)'] }

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use triomphe::Arc;
 
-const ENABLE_NORMALIZATION: bool = !cfg!(tp_disable_noramlize);
+const ENABLE_NORMALIZATION: bool = !cfg!(tp_disable_normalize);
 
 #[derive(Debug, Clone)]
 pub struct Sort {
