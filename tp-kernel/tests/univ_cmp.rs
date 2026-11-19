@@ -74,17 +74,8 @@ fn rand_level(rng: &mut dyn rand::Rng) -> Level {
         0 => Level::Zero,
         1 => Level::Param(rng.random_range(0..20)),
         2 => Level::Succ(rand_level(rng).into()),
-        3 => Level::When(rand_simple_kind(rng).into(), rand_level(rng).into()),
+        3 => Level::When(rand_kind(rng).into(), rand_level(rng).into()),
         4 => Level::Max(rand_level(rng).into(), rand_level(rng).into()),
-        _ => unreachable!(),
-    }
-}
-
-fn rand_simple_kind(rng: &mut dyn rand::Rng) -> Sort {
-    match rng.random_range(0..3) {
-        0 => Sort::SProp,
-        1 => Sort::Prop,
-        2 => Sort::Type,
         _ => unreachable!(),
     }
 }

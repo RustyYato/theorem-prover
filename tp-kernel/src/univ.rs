@@ -210,13 +210,7 @@ impl Sort {
             Sort::SProp => true,
             Sort::Prop | Sort::Type => other.prop_le(),
             Sort::Max(a, b) => a.trunc_le(other) && b.trunc_le(other),
-            Sort::Trunc(a) => match other {
-                Sort::SProp => a.eq_sprop(),
-                Sort::Prop | Sort::Type => true,
-                Sort::Param(_) => a.eq_sprop(),
-                Sort::Trunc(b) => a.trunc_le(b),
-                Sort::Max(a, b) => self.trunc_le(a) || self.trunc_le(b),
-            },
+            Sort::Trunc(a) => a.trunc_le(other),
             Sort::Param(i) => match other {
                 Sort::SProp => false,
                 Sort::Trunc(b) => self.trunc_le(b),
@@ -233,13 +227,7 @@ impl Sort {
             Sort::Prop => other.prop_le(),
             Sort::Type => other.type_le(),
             Sort::Max(a, b) => (**a).le(other) && (**b).le(other),
-            Sort::Trunc(a) => match other {
-                Sort::SProp => a.eq_sprop(),
-                Sort::Prop | Sort::Type => true,
-                Sort::Param(_) => a.eq_sprop(),
-                Sort::Trunc(b) => a.trunc_le(b),
-                Sort::Max(a, b) => self.le(a) || self.le(b),
-            },
+            Sort::Trunc(a) => a.trunc_le(other),
             Sort::Param(i) => match other {
                 Sort::SProp | Sort::Prop | Sort::Trunc(_) => false,
                 Sort::Type => true,
@@ -288,37 +276,43 @@ impl Level {
         }
     }
 
+    fn minv(&self) -> i64 {
+        match self {
+            Level::Zero | Level::Param(_) => 0,
+            Level::Succ(level) => level.minv() + 1,
+            Level::Max(a, b) => a.minv().max(b.minv()),
+            Level::When(sort, level) => {
+                if Sort::Type <= **sort {
+                    level.minv()
+                } else {
+                    0
+                }
+            }
+        }
+    }
+
     fn le_(&self, other: &Self, balance: i64) -> bool {
         match (self, other) {
-            (Level::Zero, Level::Zero | Level::Param(_)) => balance >= 0,
-            (Level::Zero, _) if balance >= 0 => true,
-            (Level::Succ(a), Level::Succ(b)) => a.le_(b, balance),
-            (Level::Succ(a), b) => a.le_(b, balance - 1),
-            (a, Level::Succ(b)) => a.le_(b, balance + 1),
-
-            (Level::Max(a, b), k) => a.le_(k, balance) && b.le_(k, balance),
-            (k, Level::Max(a, b)) => k.le_(a, balance) || k.le_(b, balance),
-
-            (Level::Param(_), Level::Zero) => false,
-            (Level::Param(i), Level::Param(j)) => i == j && balance >= 0,
-            (Level::Zero, Level::When(k, a)) => {
-                balance >= 0 || Sort::Type <= **k && Level::Zero.le_(a, balance)
-            }
-            (Level::Param(_), Level::When(k, a)) => Sort::Type.le(k) && self.le_(a, balance),
-            (Level::When(ka, a), Level::When(kb, b)) => {
-                if **ka <= Sort::Prop {
-                    return Level::Zero.le_(other, balance);
+            (Self::Zero, b) => balance + b.minv() >= 0,
+            (Self::Succ(a), Self::Succ(b)) => a.le_(b, balance),
+            (Self::Succ(a), b) => a.le_(b, balance - 1),
+            (a, Self::Succ(b)) => a.le_(b, balance + 1),
+            (Self::Max(a, b), k) => a.le_(k, balance) && b.le_(k, balance),
+            (k, Self::Max(a, b)) => k.le_(a, balance) || k.le_(b, balance),
+            (Self::When(sa, a), Self::When(sb, b)) => {
+                if **sa <= Sort::Prop && balance + other.minv() >= 0 {
+                    return true;
                 }
 
-                if **kb <= Sort::Prop {
-                    return a.le_(&Level::Zero, balance);
-                }
-
-                a.le_(b, balance)
+                let monotone = **sa <= **sb && (balance + other.minv() >= 0 || Sort::Type <= **sa);
+                a.le_(if monotone { b } else { other }, balance)
             }
-            (Level::When(k, a), b) => {
-                **k <= Sort::Prop && balance >= 0 || Sort::Type <= **k && a.le_(b, balance)
+            (Self::When(s, a), b) => {
+                (**s <= Sort::Prop && balance + b.minv() >= 0) || a.le_(b, balance)
             }
+            (Self::Param(_), Self::Zero) => false,
+            (Self::Param(a), Self::Param(b)) => a == b && balance >= 0,
+            (Self::Param(_), Self::When(k, a)) => Sort::Type <= **k && self.le_(a, balance),
         }
     }
 

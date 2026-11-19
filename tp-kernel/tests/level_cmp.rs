@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicU64;
 
 use rand::RngExt;
-use tp_kernel::{Sort, Level};
+use tp_kernel::{Level, Sort};
 
 #[test]
 fn test_mt() {
@@ -22,7 +22,6 @@ fn main() {
     let f = 1_000_000 + rand::random_range(200_000..1_000_000);
     // for _ in 0..100_000_000 {
     loop {
-        i += 1;
         if i % f == 0 {
             let c = i + C.fetch_add(i, std::sync::atomic::Ordering::Relaxed);
             i = 0;
@@ -39,6 +38,7 @@ fn main() {
         let c = rand_level(&mut rand::rng());
         if a.le(&b) {
             if b.le(&c) {
+                i += 1;
                 // test that le is transitive
                 assert!(a.le(&c), "TRANS {a:?} <= {c:?} || {b:?}")
             }
@@ -76,17 +76,8 @@ fn rand_level(rng: &mut dyn rand::Rng) -> Level {
         0 => Level::Zero,
         1 => Level::Param(rng.random_range(0..20)),
         2 => Level::Succ(rand_level(rng).into()),
-        3 => Level::When(rand_simple_kind(rng).into(), rand_level(rng).into()),
+        3 => Level::When(rand_kind(rng).into(), rand_level(rng).into()),
         4 => Level::Max(rand_level(rng).into(), rand_level(rng).into()),
-        _ => unreachable!(),
-    }
-}
-
-fn rand_simple_kind(rng: &mut dyn rand::Rng) -> Sort {
-    match rng.random_range(0..3) {
-        0 => Sort::SProp,
-        1 => Sort::Prop,
-        2 => Sort::Type,
         _ => unreachable!(),
     }
 }
