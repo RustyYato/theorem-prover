@@ -4,9 +4,15 @@ use triomphe::Arc;
 
 const ENABLE_NORMALIZATION: bool = !cfg!(tp_disable_normalize);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Sort {
     kind: SortKind,
+}
+
+impl core::fmt::Debug for Sort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.kind.fmt(f)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -19,10 +25,16 @@ enum SortKind {
     Max(Arc<Sort>, Arc<Sort>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Level {
-    kind: LevelKind,
     minv: i32,
+    kind: LevelKind,
+}
+
+impl core::fmt::Debug for Level {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.kind.fmt(f)
+    }
 }
 
 #[derive(Debug, Clone)]
