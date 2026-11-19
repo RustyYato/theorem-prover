@@ -13,7 +13,13 @@ pub enum Sort {
 }
 
 #[derive(Debug, Clone)]
-pub enum Level {
+pub struct Level {
+    kind: LevelKind,
+    minv: i32,
+}
+
+#[derive(Debug, Clone)]
+enum LevelKind {
     Zero,
     Param(u32),
     Succ(Arc<Level>),
@@ -179,15 +185,6 @@ impl Sort {
         }
     }
 
-    fn eq_sprop(&self) -> bool {
-        match self {
-            Sort::SProp => true,
-            Sort::Prop | Sort::Type | Sort::Param(_) => false,
-            Sort::Trunc(sort) => sort.eq_sprop(),
-            Sort::Max(a, b) => a.eq_sprop() && b.eq_sprop(),
-        }
-    }
-
     fn prop_le(&self) -> bool {
         match self {
             Sort::SProp | Sort::Param(_) => false,
@@ -247,72 +244,95 @@ impl Sort {
 }
 
 impl Level {
-    pub fn succ(self) -> Self {
-        Self::Succ(Arc::new(self))
-    }
-
-    pub fn max(self, other: Self) -> Self {
-        match (self, other) {
-            (Level::Zero, a) | (a, Level::Zero) => a,
-            (a, b) => Self::Max(Arc::new(a), Arc::new(b)),
+    pub fn zero() -> Self {
+        Self {
+            minv: 0,
+            kind: LevelKind::Zero,
         }
     }
 
+    pub fn param(i: u32) -> Self {
+        Self {
+            minv: 0,
+            kind: LevelKind::Param(i),
+        }
+    }
+
+    pub fn succ(self) -> Self {
+        Self {
+            minv: self.minv + 1,
+            kind: LevelKind::Succ(self.into()),
+        }
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        let minv = self.minv.max(other.minv);
+        let kind = match (self.kind, other.kind) {
+            (LevelKind::Zero, a) | (a, LevelKind::Zero) if !cfg!(tp_disable_noramlize) => a,
+            (s, o) => LevelKind::Max(
+                Arc::new(Self {
+                    minv: self.minv,
+                    kind: s,
+                }),
+                Arc::new(Self {
+                    minv: other.minv,
+                    kind: o,
+                }),
+            ),
+        };
+
+        Self { minv, kind }
+    }
+
     pub fn when(self, cond: Sort) -> Self {
-        match cond {
-            Sort::SProp | Sort::Prop => Self::Zero,
-            Sort::Type => self,
-            _ => Self::When(Arc::new(cond), Arc::new(self)),
+        let minv = if !cfg!(tp_disable_noramlize) && cond <= Sort::Prop {
+            return Self::zero();
+        } else if Sort::Type <= cond {
+            self.minv
+        } else {
+            0
+        };
+
+        Self {
+            minv,
+            kind: LevelKind::When(Arc::new(cond), Arc::new(self)),
         }
     }
 
     fn fast_eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Param(l0), Self::Param(r0)) => l0 == r0,
-            (Self::Succ(l0), Self::Succ(r0)) => l0.fast_eq(r0),
-            (Self::When(l0, l1), Self::When(r0, r1)) => l0.fast_eq(r0) && l1.fast_eq(r1),
-            (Self::Max(l0, l1), Self::Max(r0, r1)) => l0.fast_eq(r0) && l1.fast_eq(r1),
-            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        match (&self.kind, &other.kind) {
+            (LevelKind::Param(l0), LevelKind::Param(r0)) => l0 == r0,
+            (LevelKind::Succ(l0), LevelKind::Succ(r0)) => l0.fast_eq(r0),
+            (LevelKind::When(l0, l1), LevelKind::When(r0, r1)) => l0.fast_eq(r0) && l1.fast_eq(r1),
+            (LevelKind::Max(l0, l1), LevelKind::Max(r0, r1)) => l0.fast_eq(r0) && l1.fast_eq(r1),
+            (a, b) => core::mem::discriminant(a) == core::mem::discriminant(b),
         }
     }
 
-    fn minv(&self) -> i64 {
-        match self {
-            Level::Zero | Level::Param(_) => 0,
-            Level::Succ(level) => level.minv() + 1,
-            Level::Max(a, b) => a.minv().max(b.minv()),
-            Level::When(sort, level) => {
-                if Sort::Type <= **sort {
-                    level.minv()
-                } else {
-                    0
-                }
-            }
-        }
-    }
-
-    fn le_(&self, other: &Self, balance: i64) -> bool {
-        match (self, other) {
-            (Self::Zero, b) => balance + b.minv() >= 0,
-            (Self::Succ(a), Self::Succ(b)) => a.le_(b, balance),
-            (Self::Succ(a), b) => a.le_(b, balance - 1),
-            (a, Self::Succ(b)) => a.le_(b, balance + 1),
-            (Self::Max(a, b), k) => a.le_(k, balance) && b.le_(k, balance),
-            (k, Self::Max(a, b)) => k.le_(a, balance) || k.le_(b, balance),
-            (Self::When(sa, a), Self::When(sb, b)) => {
-                if **sa <= Sort::Prop && balance + other.minv() >= 0 {
+    fn le_(&self, other: &Self, balance: i32) -> bool {
+        match (&self.kind, &other.kind) {
+            (LevelKind::Zero, _) => balance + other.minv >= 0,
+            (LevelKind::Succ(a), LevelKind::Succ(b)) => a.le_(b, balance),
+            (LevelKind::Succ(a), _) => a.le_(other, balance - 1),
+            (_, LevelKind::Succ(b)) => self.le_(b, balance + 1),
+            (LevelKind::Max(a, b), _) => a.le_(other, balance) && b.le_(other, balance),
+            (_, LevelKind::Max(a, b)) => self.le_(a, balance) || self.le_(b, balance),
+            (LevelKind::When(sa, a), LevelKind::When(sb, b)) => {
+                if **sa <= Sort::Prop && balance + other.minv >= 0 {
                     return true;
                 }
 
-                let monotone = **sa <= **sb && (balance + other.minv() >= 0 || Sort::Type <= **sa);
+                let monotone = **sa <= **sb && (balance + other.minv >= 0 || Sort::Type <= **sa);
                 a.le_(if monotone { b } else { other }, balance)
             }
-            (Self::When(s, a), b) => {
-                (**s <= Sort::Prop && balance + b.minv() >= 0) || a.le_(b, balance)
+            (LevelKind::When(s, a), _) => {
+                (**s <= Sort::Prop && balance + other.minv >= 0) || a.le_(other, balance)
             }
-            (Self::Param(_), Self::Zero) => false,
-            (Self::Param(a), Self::Param(b)) => a == b && balance >= 0,
-            (Self::Param(_), Self::When(k, a)) => Sort::Type <= **k && self.le_(a, balance),
+            (LevelKind::Param(_), LevelKind::Zero) => false,
+            (LevelKind::Param(a), LevelKind::Param(b)) => a == b && balance >= 0,
+            (LevelKind::Param(_), LevelKind::When(k, a)) => {
+                Sort::Type <= **k && self.le_(a, balance)
+            }
         }
     }
 
@@ -366,14 +386,14 @@ mod tests {
 
     #[test]
     fn test_level_le() {
-        test_le_refl(Level::Zero.succ().when(Sort::Type));
-        test_le_refl(Level::Zero.max(Level::Zero.succ()));
-        assert!(Level::Zero.le(&Level::Param(0).succ().when(Sort::Type)));
-        assert!(Level::Zero.le(&Level::Param(0).succ().when(Sort::Prop)));
+        test_le_refl(Level::zero().succ().when(Sort::Type));
+        test_le_refl(Level::zero().max(Level::zero().succ()));
+        assert!(Level::zero().le(&Level::param(0).succ().when(Sort::Type)));
+        assert!(Level::zero().le(&Level::param(0).succ().when(Sort::Prop)));
         assert!(
-            Level::Zero
+            Level::zero()
                 .when(Sort::Type)
-                .le(&Level::Param(0).succ().when(Sort::Prop))
+                .le(&Level::param(0).succ().when(Sort::Prop))
         );
     }
 
@@ -382,11 +402,11 @@ mod tests {
         assert_eq!(
             Universe {
                 sort: Sort::Param(8).trunc(),
-                level: Level::Zero
+                level: Level::zero()
             },
             Universe {
                 sort: Sort::Param(8).trunc(),
-                level: Level::Param(9).when(Sort::Type)
+                level: Level::param(9).when(Sort::Type)
             }
         )
     }
