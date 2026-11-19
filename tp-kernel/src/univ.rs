@@ -312,26 +312,33 @@ impl Level {
     fn le_(&self, other: &Self, balance: i32) -> bool {
         match (&self.kind, &other.kind) {
             (LevelKind::Zero, _) => balance + other.minv >= 0,
+            (LevelKind::Param(_), LevelKind::Zero) => false,
+            (LevelKind::Param(a), LevelKind::Param(b)) => a == b && balance >= 0,
+            (LevelKind::Param(_), LevelKind::When(k, a)) => {
+                Sort::Type <= **k && self.le_(a, balance)
+            }
+
             (LevelKind::Succ(a), LevelKind::Succ(b)) => a.le_(b, balance),
             (LevelKind::Succ(a), _) => a.le_(other, balance - 1),
             (_, LevelKind::Succ(b)) => self.le_(b, balance + 1),
+
             (LevelKind::Max(a, b), _) => a.le_(other, balance) && b.le_(other, balance),
             (_, LevelKind::Max(a, b)) => self.le_(a, balance) || self.le_(b, balance),
+
             (LevelKind::When(sa, a), LevelKind::When(sb, b)) => {
-                if **sa <= Sort::Prop && balance + other.minv >= 0 {
-                    return true;
+                if **sa <= Sort::Prop {
+                    return balance + other.minv >= 0;
                 }
 
                 let monotone = **sa <= **sb && (balance + other.minv >= 0 || Sort::Type <= **sa);
                 a.le_(if monotone { b } else { other }, balance)
             }
             (LevelKind::When(s, a), _) => {
-                (**s <= Sort::Prop && balance + other.minv >= 0) || a.le_(other, balance)
-            }
-            (LevelKind::Param(_), LevelKind::Zero) => false,
-            (LevelKind::Param(a), LevelKind::Param(b)) => a == b && balance >= 0,
-            (LevelKind::Param(_), LevelKind::When(k, a)) => {
-                Sort::Type <= **k && self.le_(a, balance)
+                if **s <= Sort::Prop {
+                    balance + other.minv >= 0
+                } else {
+                    a.le_(other, balance)
+                }
             }
         }
     }
