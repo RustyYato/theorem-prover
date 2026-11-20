@@ -9,6 +9,7 @@ use bstr::BStr;
 #[repr(u8)]
 pub enum Kind {
     Eof,
+    Error,
 
     #[regex(b".", priority = 0)]
     InvalidUtf8,
@@ -70,6 +71,10 @@ pub enum Kind {
     LParen,
     #[token(")")]
     RParen,
+    #[token("/-")]
+    CommentStart,
+    #[token("-/")]
+    CommentEnd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -211,6 +216,8 @@ impl<'text> Lexer<'text> {
     pub fn lex(&mut self) -> Token<'text> {
         let token = self.peek;
 
+        let mut comment_depth = 0u64;
+
         loop {
             self.peek = Token {
                 kind: (self.lexer.next().transpose())
@@ -224,7 +231,22 @@ impl<'text> Lexer<'text> {
                 self.newlines.push(token.span.start);
             }
 
-            if let Kind::Newline | Kind::WhiteSpace = self.peek.kind {
+            match self.peek.kind {
+                Kind::Newline | Kind::WhiteSpace => continue,
+                Kind::CommentStart => comment_depth = comment_depth.saturating_add(1),
+                Kind::CommentEnd if comment_depth > 0 => {
+                    comment_depth -= 1;
+                    continue;
+                }
+                Kind::CommentEnd => self.peek.kind = Kind::Error,
+                Kind::Eof if comment_depth > 0 => {
+                    self.peek.kind = Kind::Error;
+                    comment_depth = 0;
+                }
+                _ => (),
+            }
+
+            if comment_depth > 0 {
                 continue;
             }
 

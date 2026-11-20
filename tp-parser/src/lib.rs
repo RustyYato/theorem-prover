@@ -52,8 +52,9 @@ impl<'text> Parser<'text> {
         assert_eq!(
             token.kind(),
             kind,
-            "expected {kind:?} but found {:?}",
-            token.kind()
+            "expected {kind:?} but found {:?} {:?}",
+            token.kind(),
+            token.span(),
         );
 
         token
@@ -113,7 +114,7 @@ impl<'text> Parser<'text> {
     }
 
     fn parse_axiom(&mut self) -> a::Axiom {
-        self.parse(Def);
+        self.parse(Axiom);
         let name = self.parse_ident();
         self.parse(Colon);
         let ty = self.parse_term();
@@ -151,7 +152,7 @@ impl<'text> Parser<'text> {
                 let args = self.parse_args();
                 self.parse(BoldArrow);
                 let body = self.parse_term();
-                a::Term::Forall(a::Thin::from(a::SliceWithHeader::new::<Box<_>, _>(
+                a::Term::Lambda(a::Thin::from(a::SliceWithHeader::new::<Box<_>, _>(
                     body, args,
                 )))
             }
@@ -162,7 +163,13 @@ impl<'text> Parser<'text> {
             }
             Type => {
                 self.parse(Type);
-                let level = self.parse_univ_level(UnivPrec::All);
+                let level = if is_ident!(check self.lexer.peek())
+                    || matches!(self.lexer.peek(), Natural | LParen)
+                {
+                    self.parse_univ_level(UnivPrec::All)
+                } else {
+                    a::Level::nat(0)
+                };
                 a::Term::Univ(a::Universe {
                     sort: a::Sort::type_(),
                     level,
