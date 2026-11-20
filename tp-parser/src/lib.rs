@@ -110,6 +110,7 @@ impl<'text> Parser<'text> {
         let ty = self.parse_term();
         self.parse(ColonEq);
         let expr = self.parse_term();
+        self.parse(Semicolon);
         a::Definition { name, ty, expr }
     }
 
@@ -118,6 +119,7 @@ impl<'text> Parser<'text> {
         let name = self.parse_ident();
         self.parse(Colon);
         let ty = self.parse_term();
+        self.parse(Semicolon);
         a::Axiom { name, ty }
     }
 
@@ -136,8 +138,21 @@ impl<'text> Parser<'text> {
         }
     }
 
-    fn parse_term(&mut self) -> a::Term {
+    fn has_term(&self) -> bool {
+        matches!(
+            self.lexer.peek(),
+            LParen | Forall | Fn | Univ | Type | Prop | SProp | Natural
+        ) || is_ident!(check self.lexer.peek())
+    }
+
+    fn parse_basic_term(&mut self) -> a::Term {
         match self.lexer.peek() {
+            LParen => {
+                self.parse(LParen);
+                let t = self.parse_term();
+                self.parse(RParen);
+                t
+            }
             Forall => {
                 self.parse(Forall);
                 let args = self.parse_args();
@@ -199,6 +214,24 @@ impl<'text> Parser<'text> {
                 a::Term::Variable(name)
             }
             _ => self.unreachable(),
+        }
+    }
+
+    fn parse_term(&mut self) -> a::Term {
+        let term = self.parse_basic_term();
+
+        let mut args = Vec::new();
+
+        while self.has_term() {
+            args.push(self.parse_basic_term());
+        }
+
+        if args.is_empty() {
+            term
+        } else {
+            a::Term::Application(a::Thin::from(a::SliceWithHeader::new::<Box<_>, _>(
+                term, args,
+            )))
         }
     }
 

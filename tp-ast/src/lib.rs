@@ -51,6 +51,7 @@ pub enum Term {
     Univ(Universe),
     Forall(Thin<Box<SliceWithHeader<Term, Argument>>>),
     Lambda(Thin<Box<SliceWithHeader<Term, Argument>>>),
+    Application(Thin<Box<SliceWithHeader<Term, Term>>>),
     Natural(u64),
 }
 
@@ -68,6 +69,11 @@ impl core::fmt::Debug for Term {
                 .debug_struct("Lambda")
                 .field("args", &&arg0.slice)
                 .field("body", &arg0.header)
+                .finish(),
+            Self::Application(arg0) => f
+                .debug_struct("Application")
+                .field("func", &&arg0.slice)
+                .field("args", &arg0.header)
                 .finish(),
             Self::Natural(arg0) => f.debug_tuple("Natural").field(arg0).finish(),
         }

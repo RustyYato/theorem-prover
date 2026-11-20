@@ -144,13 +144,13 @@ impl NameResolver {
 
     fn translate_term(&mut self, depth: usize, term: &a::Term) -> k::Term {
         match term {
-            tp_ast::Term::Variable(ident) => match self.resolve(ident) {
+            a::Term::Variable(ident) => match self.resolve(ident) {
                 Some(Ok(term)) => k::Term::var(depth - term),
                 Some(Err(global)) => k::Term::global(global),
                 None => panic!("unresolved ident: {}", ident.val),
             },
-            tp_ast::Term::Univ(universe) => k::Term::univ(self.translate_univ(universe)),
-            tp_ast::Term::Forall(data) => {
+            a::Term::Univ(universe) => k::Term::univ(self.translate_univ(universe)),
+            a::Term::Forall(data) => {
                 let (arg_tys, mut body) = self.translate_closure(depth, data);
 
                 for arg_ty in arg_tys.into_iter().rev() {
@@ -159,7 +159,7 @@ impl NameResolver {
 
                 body
             }
-            tp_ast::Term::Lambda(data) => {
+            a::Term::Lambda(data) => {
                 let (arg_tys, mut body) = self.translate_closure(depth, data);
 
                 for arg_ty in arg_tys.into_iter().rev() {
@@ -168,7 +168,17 @@ impl NameResolver {
 
                 body
             }
-            tp_ast::Term::Natural(_) => todo!(),
+            a::Term::Application(app) => {
+                let mut term = self.translate_term(depth, &app.header);
+
+                for arg in &app.slice {
+                    let arg = self.translate_term(depth, arg);
+                    term = term.apply(arg);
+                }
+
+                term
+            }
+            a::Term::Natural(_) => todo!(),
         }
     }
 
@@ -198,12 +208,12 @@ impl NameResolver {
 
     fn translate_sort(&mut self, sort: &a::Sort) -> k::Sort {
         match sort.unpack() {
-            tp_ast::UnpackedSort::SProp => k::Sort::sprop(),
-            tp_ast::UnpackedSort::Prop => k::Sort::prop(),
-            tp_ast::UnpackedSort::Type => k::Sort::ty(),
-            tp_ast::UnpackedSort::Param(ident) => k::Sort::param(self.resolve_sort(&ident)),
-            tp_ast::UnpackedSort::Trunc(sort) => self.translate_sort(sort).trunc(),
-            tp_ast::UnpackedSort::Max(sorts) => {
+            a::UnpackedSort::SProp => k::Sort::sprop(),
+            a::UnpackedSort::Prop => k::Sort::prop(),
+            a::UnpackedSort::Type => k::Sort::ty(),
+            a::UnpackedSort::Param(ident) => k::Sort::param(self.resolve_sort(&ident)),
+            a::UnpackedSort::Trunc(sort) => self.translate_sort(sort).trunc(),
+            a::UnpackedSort::Max(sorts) => {
                 self.translate_max(sorts, Self::translate_sort, k::Sort::max)
             }
         }
@@ -211,15 +221,15 @@ impl NameResolver {
 
     fn translate_level(&mut self, level: &a::Level) -> k::Level {
         match level.unpack() {
-            tp_ast::UnpackedLevel::Nat(offset) => k::Level::zero() + offset,
-            tp_ast::UnpackedLevel::Param(ident, offset) => {
+            a::UnpackedLevel::Nat(offset) => k::Level::zero() + offset,
+            a::UnpackedLevel::Param(ident, offset) => {
                 k::Level::param(self.resolve_level(&ident)) + offset
             }
-            tp_ast::UnpackedLevel::Add(level, offset) => self.translate_level(level) + offset,
-            tp_ast::UnpackedLevel::When(sort, level) => {
+            a::UnpackedLevel::Add(level, offset) => self.translate_level(level) + offset,
+            a::UnpackedLevel::When(sort, level) => {
                 self.translate_level(level).when(self.translate_sort(sort))
             }
-            tp_ast::UnpackedLevel::Max(levels) => {
+            a::UnpackedLevel::Max(levels) => {
                 self.translate_max(levels, Self::translate_level, k::Level::max)
             }
         }
