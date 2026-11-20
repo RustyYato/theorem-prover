@@ -203,7 +203,6 @@ impl Term {
     }
 
     fn weaken_pair_by(
-        &self,
         pair: &Arc<[Term; 2]>,
         var_arg: usize,
         var_body: usize,
@@ -231,15 +230,15 @@ impl Term {
             TermRepr::Global(ustr) => TermRepr::Global(*ustr),
             TermRepr::Univ(universe) => TermRepr::Univ(universe.clone()),
             TermRepr::Lambda(lam) => {
-                let repr = self.weaken_pair_by(lam, var, var + 1, skipped_binders);
+                let repr = Self::weaken_pair_by(lam, var, var + 1, skipped_binders);
                 TermRepr::Lambda(repr)
             }
             TermRepr::Forall(forall) => {
-                let repr = self.weaken_pair_by(forall, var, var + 1, skipped_binders);
+                let repr = Self::weaken_pair_by(forall, var, var + 1, skipped_binders);
                 TermRepr::Lambda(repr)
             }
             TermRepr::Application(app) => {
-                let repr = self.weaken_pair_by(app, var, var, skipped_binders);
+                let repr = Self::weaken_pair_by(app, var, var, skipped_binders);
                 TermRepr::Application(repr)
             }
         };
@@ -247,12 +246,56 @@ impl Term {
         Term { repr }
     }
 
-    fn subst_(&self, var: usize, subst: &Self, skipped_binders: usize) -> Self {
-        todo!()
+    fn subst_pair_by(
+        pair: &Arc<[Term; 2]>,
+        var_arg: usize,
+        var_body: usize,
+        subst: &Self,
+        skipped_binders: usize,
+    ) -> Arc<[Term; 2]> {
+        let arg_ty = pair[0].subst_(var_arg, subst, skipped_binders);
+        let body = pair[1].subst_(var_body, subst, skipped_binders);
+
+        if pair[0].shallow_eq(&arg_ty) && pair[1].shallow_eq(&body) {
+            pair.clone()
+        } else {
+            Arc::new([arg_ty, body])
+        }
     }
 
-    fn subst(&self, var: usize, subst: &Self) -> Self {
-        self.subst_(var, subst, 0)
+    fn subst_(&self, var: usize, subst: &Self, skipped_binders: usize) -> Self {
+        let repr = match &self.repr {
+            TermRepr::Var(i) => match var.cmp(i) {
+                std::cmp::Ordering::Less => TermRepr::Var(*i - 1),
+                std::cmp::Ordering::Greater => TermRepr::Var(*i),
+                std::cmp::Ordering::Equal => return subst.weaken_by(0, skipped_binders),
+            },
+            TermRepr::Global(name) => TermRepr::Global(*name),
+            TermRepr::Univ(universe) => TermRepr::Univ(universe.clone()),
+            TermRepr::Lambda(lam) => TermRepr::Lambda(Self::subst_pair_by(
+                lam,
+                var,
+                var + 1,
+                subst,
+                skipped_binders,
+            )),
+            TermRepr::Forall(forall) => TermRepr::Forall(Self::subst_pair_by(
+                forall,
+                var,
+                var + 1,
+                subst,
+                skipped_binders,
+            )),
+            TermRepr::Application(app) => {
+                TermRepr::Forall(Self::subst_pair_by(app, var, var, subst, skipped_binders))
+            }
+        };
+
+        Term { repr }
+    }
+
+    fn subst(&self, var: usize, subst: &Self, skipped_binders: usize) -> Self {
+        self.subst_(var, subst, skipped_binders)
     }
 
     fn is_defeq(&self, other: &Self, ctx: &mut Context) -> bool {
@@ -359,7 +402,7 @@ impl Term {
                     });
                 }
 
-                Ok(ret_ty.subst(0, &app_arg_ty))
+                Ok(ret_ty.subst(0, &app_arg_ty, 0))
             }
         }
     }
