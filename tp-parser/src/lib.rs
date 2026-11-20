@@ -203,12 +203,6 @@ impl<'text> Parser<'text> {
     }
 
     fn parse_universe(&mut self) -> a::Universe {
-        if self.try_parse(LParen) {
-            let u = self.parse_universe();
-            self.parse(RParen);
-            return u;
-        }
-
         let sort = self.parse_univ_sort(UnivPrec::Bound);
         let level = self.parse_univ_level(UnivPrec::Bound);
 
@@ -279,7 +273,9 @@ impl<'text> Parser<'text> {
 
                 self.parse(Max);
                 let mut levels = Vec::new();
-                while is_ident!(check self.lexer.peek()) {
+                while is_ident!(check self.lexer.peek())
+                    || matches!(self.lexer.peek(), LParen | Natural)
+                {
                     levels.push(self.parse_univ_level(UnivPrec::Bound));
                 }
                 a::Level::max(levels)
