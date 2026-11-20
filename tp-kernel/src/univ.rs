@@ -263,6 +263,17 @@ impl Sort {
         }
     }
 
+    pub fn shallow_eq(&self, other: &Self) -> bool {
+        match (&self.kind, &other.kind) {
+            (SortKind::Param(l0), SortKind::Param(r0)) => l0 == r0,
+            (SortKind::Trunc(l0), SortKind::Trunc(r0)) => Arc::ptr_eq(l0, r0),
+            (SortKind::Max(l0, l1), SortKind::Max(r0, r1)) => {
+                Arc::ptr_eq(l0, r0) && Arc::ptr_eq(l1, r1)
+            }
+            _ => core::mem::discriminant(&self.kind) == core::mem::discriminant(&other.kind),
+        }
+    }
+
     fn prop_le(&self) -> bool {
         match &self.kind {
             SortKind::SProp | SortKind::Param(_) => false,
@@ -353,6 +364,10 @@ impl Level {
 
     #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, n: u16) -> Self {
+        if ENABLE_NORMALIZATION && n == 0 {
+            return self;
+        }
+
         if ENABLE_NORMALIZATION
             && let LevelKind::Add(_, ref mut s) = self.kind
             && *s <= u16::MAX - n
@@ -427,6 +442,20 @@ impl Level {
         }
     }
 
+    pub fn shallow_eq(&self, other: &Self) -> bool {
+        match (&self.kind, &other.kind) {
+            (LevelKind::Param(l0), LevelKind::Param(r0)) => l0 == r0,
+            (LevelKind::Add(l0, n), LevelKind::Add(r0, m)) => n == m && Arc::ptr_eq(l0, r0),
+            (LevelKind::When(l0, l1), LevelKind::When(r0, r1)) => {
+                Arc::ptr_eq(l0, r0) && Arc::ptr_eq(l1, r1)
+            }
+            (LevelKind::Max(l0, l1), LevelKind::Max(r0, r1)) => {
+                Arc::ptr_eq(l0, r0) && Arc::ptr_eq(l1, r1)
+            }
+            (a, b) => core::mem::discriminant(a) == core::mem::discriminant(b),
+        }
+    }
+
     fn le_(&self, other: &Self, balance: i32) -> bool {
         match (&self.kind, &other.kind) {
             (LevelKind::Zero, _) => balance + other.minv >= 0,
@@ -483,6 +512,10 @@ impl Universe {
             sort: Sort::ty(),
             level: self.level.clone().succ().when(self.sort.clone()),
         }
+    }
+
+    pub fn shallow_eq(&self, other: &Self) -> bool {
+        self.sort.shallow_eq(&other.sort) && self.level.shallow_eq(&other.level)
     }
 }
 

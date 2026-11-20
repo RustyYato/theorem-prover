@@ -15,16 +15,17 @@ fn main() -> eyre::Result {
     let file = fs_err::read(args.path)?;
     let parser = tp_parser::Parser::new(&file);
     let (doc, _newlines) = parser.parse_file();
+    dbg!(&doc);
     let ctx = translate_doc(&doc);
-    dbg!(doc);
     dbg!(ctx);
     Ok(())
 }
 
 #[derive(Default)]
 struct NameResolver {
-    names_map: ustr::UstrMap<Vec<usize>>,
-    names: Vec<Ustr>,
+    globals: ustr::UstrSet,
+    locals_map: ustr::UstrMap<Vec<usize>>,
+    locals: Vec<Ustr>,
     sort: ustr::UstrMap<u32>,
     level: ustr::UstrMap<u32>,
 }
@@ -36,18 +37,25 @@ fn translate_doc(doc: &a::Document) -> k::Context {
     for global in &doc.globals {
         nr.clear();
         match global {
-            a::Global::Definition(definition) => ctx.add_definition(
-                definition.name.val,
-                nr.translate_term(0, &definition.expr),
-                nr.translate_term(0, &definition.ty),
-            ),
-            a::Global::Opaque(definition) => ctx.add_opaque(
-                definition.name.val,
-                nr.translate_term(0, &definition.expr),
-                nr.translate_term(0, &definition.ty),
-            ),
+            a::Global::Definition(definition) => {
+                ctx.add_definition(
+                    definition.name.val,
+                    nr.translate_term(0, &definition.expr),
+                    nr.translate_term(0, &definition.ty),
+                );
+                nr.globals.insert(definition.name.val);
+            }
+            a::Global::Opaque(definition) => {
+                ctx.add_opaque(
+                    definition.name.val,
+                    nr.translate_term(0, &definition.expr),
+                    nr.translate_term(0, &definition.ty),
+                );
+                nr.globals.insert(definition.name.val);
+            }
             a::Global::Axiom(axiom) => {
-                ctx.add_axiom(axiom.name.val, nr.translate_term(0, &axiom.ty))
+                ctx.add_axiom(axiom.name.val, nr.translate_term(0, &axiom.ty));
+                nr.globals.insert(axiom.name.val);
             }
         }
     }
@@ -56,8 +64,8 @@ fn translate_doc(doc: &a::Document) -> k::Context {
 }
 
 impl NameResolver {
-    fn resolve(&self, ident: &a::Ident) -> Option<usize> {
-        match self.names_map.get(&ident.val) {
+    fn resolve_local(&self, ident: &a::Ident) -> Option<usize> {
+        match self.locals_map.get(&ident.val) {
             Some(terms) => {
                 if let [.., term] = *terms.as_slice() {
                     Some(term)
@@ -67,6 +75,16 @@ impl NameResolver {
             }
             None => None,
         }
+    }
+
+    fn resolve(&self, ident: &a::Ident) -> Option<Result<usize, Ustr>> {
+        self.resolve_local(ident).map(Ok).or_else(|| {
+            if self.globals.contains(&ident.val) {
+                Some(Err(ident.val))
+            } else {
+                None
+            }
+        })
     }
 
     fn resolve_sort(&mut self, ident: &a::Ident) -> u32 {
@@ -86,8 +104,8 @@ impl NameResolver {
     }
 
     fn exit_scope(&mut self, mark: usize) {
-        for i in self.names.drain(mark..) {
-            if let Some(names) = self.names_map.get_mut(&i) {
+        for i in self.locals.drain(mark..) {
+            if let Some(names) = self.locals_map.get_mut(&i) {
                 names.pop();
             }
         }
@@ -95,9 +113,9 @@ impl NameResolver {
 
     fn translate_argument(&mut self, depth: usize, arg: &a::Argument) -> k::Term {
         let term = self.translate_term(depth, &arg.ty);
-        let names_map = self.names_map.entry(arg.name.val).or_default();
+        let names_map = self.locals_map.entry(arg.name.val).or_default();
         names_map.push(depth + 1);
-        self.names.push(arg.name.val);
+        self.locals.push(arg.name.val);
         term
     }
 
@@ -108,7 +126,7 @@ impl NameResolver {
     ) -> (Vec<k::Term>, k::Term) {
         depth.checked_add(data.slice.len()).unwrap();
 
-        let mark = self.names.len();
+        let mark = self.locals.len();
 
         let mut arg_tys = Vec::with_capacity(data.slice.len());
         for arg in &data.slice {
@@ -127,7 +145,8 @@ impl NameResolver {
     fn translate_term(&mut self, depth: usize, term: &a::Term) -> k::Term {
         match term {
             tp_ast::Term::Variable(ident) => match self.resolve(ident) {
-                Some(term) => k::Term::var(depth - term),
+                Some(Ok(term)) => k::Term::var(depth - term),
+                Some(Err(global)) => k::Term::global(global),
                 None => panic!("unresolved ident: {}", ident.val),
             },
             tp_ast::Term::Univ(universe) => k::Term::univ(self.translate_univ(universe)),
@@ -208,15 +227,16 @@ impl NameResolver {
 
     fn clear(&mut self) {
         let Self {
-            names_map,
-            names,
+            globals: _,
+            locals_map,
+            locals,
             level,
             sort,
         } = self;
 
         level.clear();
         sort.clear();
-        names.clear();
-        names_map.clear();
+        locals.clear();
+        locals_map.clear();
     }
 }
