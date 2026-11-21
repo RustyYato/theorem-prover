@@ -1,6 +1,6 @@
 pub mod univ;
 
-use std::mem::DropGuard;
+use std::{borrow::Cow, mem::DropGuard};
 
 use triomphe::Arc;
 pub use univ::{Level, Sort, Universe};
@@ -69,7 +69,6 @@ pub enum TypeError {
     MissingGlobalVariable,
     ExpectedForall { found: Term },
     ExpectedDefeq { expected: Term, found: Term },
-    //
 }
 
 impl Context {
@@ -202,6 +201,14 @@ impl Term {
         }
     }
 
+    fn merge_pair_by(pair: &Arc<[Term; 2]>, a: Term, b: Term) -> Arc<[Term; 2]> {
+        if pair[0].shallow_eq(&a) && pair[1].shallow_eq(&b) {
+            pair.clone()
+        } else {
+            Arc::new([a, b])
+        }
+    }
+
     fn weaken_pair_by(
         pair: &Arc<[Term; 2]>,
         var_arg: usize,
@@ -210,12 +217,7 @@ impl Term {
     ) -> Arc<[Term; 2]> {
         let arg_ty = pair[0].weaken_by(var_arg, skipped_binders);
         let body = pair[1].weaken_by(var_body, skipped_binders);
-
-        if pair[0].shallow_eq(&arg_ty) && pair[1].shallow_eq(&body) {
-            pair.clone()
-        } else {
-            Arc::new([arg_ty, body])
-        }
+        Self::merge_pair_by(pair, arg_ty, body)
     }
 
     fn weaken_by(&self, var: usize, skipped_binders: usize) -> Self {
@@ -255,12 +257,7 @@ impl Term {
     ) -> Arc<[Term; 2]> {
         let arg_ty = pair[0].subst_(var_arg, subst, skipped_binders);
         let body = pair[1].subst_(var_body, subst, skipped_binders);
-
-        if pair[0].shallow_eq(&arg_ty) && pair[1].shallow_eq(&body) {
-            pair.clone()
-        } else {
-            Arc::new([arg_ty, body])
-        }
+        Self::merge_pair_by(pair, arg_ty, body)
     }
 
     fn subst_(&self, var: usize, subst: &Self, skipped_binders: usize) -> Self {
@@ -299,10 +296,69 @@ impl Term {
     }
 
     fn is_defeq(&self, other: &Self, ctx: &mut Context) -> bool {
-        let len = ctx.types.len();
-        let _guard = DropGuard::new(ctx, |ctx| ctx.types.truncate(len));
+        // let len = ctx.types.len();
+        // let _guard = DropGuard::new(ctx, |ctx| ctx.types.truncate(len));
 
-        self == other
+        if self == other {
+            return true;
+        }
+
+        let a = self.normalize(ctx);
+        let b = other.normalize(ctx);
+
+        matches!((a, b), (Ok(a), Ok(b)) if a == b)
+    }
+
+    pub fn normalize(&self, ctx: &Context) -> Result<Self, TypeError> {
+        let mut this = Cow::Borrowed(self);
+
+        let repr = loop {
+            match &this.repr {
+                TermRepr::Var(i) => break TermRepr::Var(*i),
+                TermRepr::Global(ustr) => {
+                    return ctx
+                        .globals
+                        .get(ustr)
+                        .map(|ty| match ty {
+                            Global::Definition { def, ty: _ } => def.clone(),
+                            Global::Opaque { def: _, ty: _ } | Global::Axiom { ty: _ } => {
+                                this.into_owned()
+                            }
+                        })
+                        .ok_or(TypeError::MissingGlobalVariable);
+                }
+                TermRepr::Univ(_) => return Ok(this.into_owned()),
+                TermRepr::Lambda(lam) => {
+                    let arg_ty = lam[0].normalize(ctx)?;
+                    let body = lam[1].normalize(ctx)?;
+                    break TermRepr::Lambda(Self::merge_pair_by(lam, arg_ty, body));
+                }
+                TermRepr::Forall(forall) => {
+                    let arg_ty = forall[0].normalize(ctx)?;
+                    let body = forall[1].normalize(ctx)?;
+                    break TermRepr::Forall(Self::merge_pair_by(forall, arg_ty, body));
+                }
+                TermRepr::Application(app) => {
+                    let arg_ty = app[0].normalize(ctx)?;
+                    let body = app[1].normalize(ctx)?;
+
+                    match arg_ty.repr {
+                        TermRepr::Lambda(a) | TermRepr::Forall(a) => {
+                            this = Cow::Owned(a[1].subst(0, &body, 0));
+                            continue;
+                        }
+                        TermRepr::Var(_)
+                        | TermRepr::Global(_)
+                        | TermRepr::Univ(_)
+                        | TermRepr::Application(_) => (),
+                    }
+
+                    break TermRepr::Application(Self::merge_pair_by(app, arg_ty, body));
+                }
+            }
+        };
+
+        Ok(Self { repr })
     }
 
     pub fn type_of(&self, ctx: &mut Context) -> Result<Term, TypeError> {
