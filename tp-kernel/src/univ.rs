@@ -344,6 +344,15 @@ impl Sort {
             SortKind::Max(a, b) => (**a).le_prop() && (**b).le_prop(),
         }
     }
+
+    fn subst_all(&self, g: &super::GlobalRef) -> Self {
+        match &self.kind {
+            SortKind::SProp | SortKind::Prop | SortKind::Type => self.clone(),
+            SortKind::Param(i) => g.sorts[*i as usize].clone(),
+            SortKind::Trunc(sort) => Self::trunc(sort.subst_all(g)),
+            SortKind::Max(a, b) => Self::max(a.subst_all(g), b.subst_all(g)),
+        }
+    }
 }
 
 impl core::ops::Add<u16> for Level {
@@ -520,6 +529,16 @@ impl Level {
     pub fn le(&self, other: &Self) -> bool {
         self.le_(other, 0)
     }
+
+    fn subst_all(&self, g: &super::GlobalRef) -> Self {
+        match &self.kind {
+            LevelKind::Zero => self.clone(),
+            LevelKind::Param(i) => g.levels[*i as usize].clone(),
+            LevelKind::Add(level, n) => level.subst_all(g).add(*n),
+            LevelKind::When(sort, level) => level.subst_all(g).when(sort.subst_all(g)),
+            LevelKind::Max(a, b) => a.subst_all(g).max(b.subst_all(g)),
+        }
+    }
 }
 
 impl Universe {
@@ -543,6 +562,13 @@ impl Universe {
 
     pub fn shallow_eq(&self, other: &Self) -> bool {
         self.sort.shallow_eq(&other.sort) && self.level.shallow_eq(&other.level)
+    }
+
+    pub(super) fn subst_all(&self, g: &super::GlobalRef) -> Self {
+        Self {
+            sort: self.sort.subst_all(g),
+            level: self.level.subst_all(g),
+        }
     }
 }
 

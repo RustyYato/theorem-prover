@@ -34,6 +34,11 @@ struct GlobalRef {
     sorts: Box<[Sort]>,
     levels: Box<[Level]>,
 }
+impl GlobalRef {
+    fn subst_all(&self, g: &GlobalRef) -> GlobalRef {
+        todo!()
+    }
+}
 
 impl core::fmt::Debug for TermRepr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -378,25 +383,55 @@ impl Term {
         matches!((a, b), (Ok(a), Ok(b)) if a == b)
     }
 
+    fn subst_all_univ(&self, g: &GlobalRef) -> Self {
+        match &self.repr {
+            TermRepr::Var(_) => self.clone(),
+            TermRepr::Global(global_ref) => {
+                let g = global_ref.subst_all(g);
+                Self::global(g.name, g.sorts, g.levels)
+            }
+            TermRepr::Univ(universe) => Self::univ(universe.subst_all(g)),
+            TermRepr::Lambda(args) => {
+                let a = args[0].subst_all_univ(g);
+                let b = args[1].subst_all_univ(g);
+                Self {
+                    repr: TermRepr::Lambda(Self::merge_pair_by(args, a, b)),
+                }
+            }
+            TermRepr::Forall(args) => {
+                let a = args[0].subst_all_univ(g);
+                let b = args[1].subst_all_univ(g);
+                Self {
+                    repr: TermRepr::Forall(Self::merge_pair_by(args, a, b)),
+                }
+            }
+            TermRepr::Application(args) => {
+                let a = args[0].subst_all_univ(g);
+                let b = args[1].subst_all_univ(g);
+                Self {
+                    repr: TermRepr::Application(Self::merge_pair_by(args, a, b)),
+                }
+            }
+        }
+    }
+
     pub fn normalize(&self, ctx: &Context) -> Result<Self, TypeError> {
         let mut this = Cow::Borrowed(self);
 
         let repr = loop {
             match &this.repr {
                 TermRepr::Var(i) => break TermRepr::Var(*i),
-                TermRepr::Global(ustr) => {
-                    return ctx
-                        .globals
-                        .get(&ustr.name)
-                        .map(|ty| match ty {
-                            Global::Definition {
-                                value: def,
-                                ty: _,
-                                params: _,
-                            } => def.clone(),
-                            Global::Opaque { .. } | Global::Axiom { .. } => this.into_owned(),
-                        })
-                        .ok_or(TypeError::MissingGlobalVariable);
+                TermRepr::Global(g) => {
+                    let g = &**g;
+                    return match ctx.globals.get(&g.name) {
+                        Some(Global::Definition {
+                            value: def,
+                            ty: _,
+                            params: _,
+                        }) => Ok(def.subst_all_univ(g)),
+                        Some(_) => Ok(this.into_owned()),
+                        None => Err(TypeError::MissingGlobalVariable),
+                    };
                 }
                 TermRepr::Univ(_) => return Ok(this.into_owned()),
                 TermRepr::Lambda(lam) => {
@@ -457,7 +492,7 @@ impl Term {
             TermRepr::Global(ref g) => ctx
                 .globals
                 .get(&g.name)
-                .map(|x| x.ty().clone())
+                .map(|x| x.ty().subst_all_univ(g))
                 .ok_or(TypeError::MissingGlobalVariable),
             TermRepr::Univ(ref universe) => Ok(Term {
                 repr: TermRepr::Univ(universe.type_of()),
