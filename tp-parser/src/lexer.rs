@@ -71,6 +71,12 @@ pub enum Kind {
     LParen,
     #[token(")")]
     RParen,
+    #[token("{")]
+    LCurly,
+    #[token("}")]
+    RCurly,
+    #[token("/")]
+    Slash,
     #[token("/-")]
     CommentStart,
     #[token("-/")]

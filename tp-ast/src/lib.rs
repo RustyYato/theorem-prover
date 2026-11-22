@@ -3,7 +3,7 @@ use std::num::NonZero;
 pub use erasable::Thin;
 use ptr_union::Union8;
 pub use slice_dst::SliceWithHeader;
-use ustr::Ustr;
+use ustr::{Ustr, UstrSet};
 
 #[derive(Clone, Copy)]
 pub struct Ident {
@@ -35,6 +35,8 @@ pub enum Global {
 #[derive(Debug, Clone)]
 pub struct Definition {
     pub name: Ident,
+    pub sorts: UstrSet,
+    pub levels: UstrSet,
     pub ty: Term,
     pub expr: Term,
 }
@@ -42,6 +44,8 @@ pub struct Definition {
 #[derive(Debug, Clone)]
 pub struct Axiom {
     pub name: Ident,
+    pub sorts: UstrSet,
+    pub levels: UstrSet,
     pub ty: Term,
 }
 

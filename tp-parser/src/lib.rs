@@ -103,24 +103,64 @@ impl<'text> Parser<'text> {
         (a::Document { globals }, self.lexer.finish())
     }
 
-    fn parse_def(&mut self) -> a::Definition {
-        self.parse(Def);
+    fn parse_axiom_prefix(&mut self) -> a::Axiom {
         let name = self.parse_ident();
+        let (sorts, levels) = if self.try_parse(Period) {
+            let mut sorts = ustr::UstrSet::default();
+            let mut levels = ustr::UstrSet::default();
+            self.parse(LCurly);
+            let mut current = &mut sorts;
+            let mut is_sorts = true;
+            loop {
+                match self.lexer.peek() {
+                    RCurly => break,
+                    Slash if is_sorts => {
+                        self.parse(Slash);
+                        current = &mut levels;
+                        is_sorts = false;
+                    }
+                    Ident => {
+                        current.insert(self.parse_ident().val);
+                    }
+                    _ => self.unreachable(),
+                }
+            }
+            self.parse(RCurly);
+            (sorts, levels)
+        } else {
+            Default::default()
+        };
+
         self.parse(Colon);
         let ty = self.parse_term();
+        a::Axiom {
+            name,
+            sorts,
+            levels,
+            ty,
+        }
+    }
+
+    fn parse_def(&mut self) -> a::Definition {
+        self.parse(Def);
+        let prefix = self.parse_axiom_prefix();
         self.parse(ColonEq);
         let expr = self.parse_term();
         self.parse(Semicolon);
-        a::Definition { name, ty, expr }
+        a::Definition {
+            name: prefix.name,
+            sorts: prefix.sorts,
+            levels: prefix.levels,
+            ty: prefix.ty,
+            expr,
+        }
     }
 
     fn parse_axiom(&mut self) -> a::Axiom {
         self.parse(Axiom);
-        let name = self.parse_ident();
-        self.parse(Colon);
-        let ty = self.parse_term();
+        let axiom = self.parse_axiom_prefix();
         self.parse(Semicolon);
-        a::Axiom { name, ty }
+        axiom
     }
 
     fn parse_args(&mut self) -> Vec<a::Argument> {
