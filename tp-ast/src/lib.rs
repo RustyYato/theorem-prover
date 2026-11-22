@@ -35,8 +35,8 @@ pub enum Global {
 #[derive(Debug, Clone)]
 pub struct Definition {
     pub name: Ident,
-    pub sorts: UstrSet,
-    pub levels: UstrSet,
+    pub sorts: Vec<Ustr>,
+    pub levels: Vec<Ustr>,
     pub ty: Term,
     pub expr: Term,
 }
@@ -44,14 +44,15 @@ pub struct Definition {
 #[derive(Debug, Clone)]
 pub struct Axiom {
     pub name: Ident,
-    pub sorts: UstrSet,
-    pub levels: UstrSet,
+    pub sorts: Vec<Ustr>,
+    pub levels: Vec<Ustr>,
     pub ty: Term,
 }
 
 #[derive(Clone)]
 pub enum Term {
     Variable(Ident),
+    GlobalRef(Box<GlobalRef>),
     Univ(Universe),
     Forall(Thin<Box<SliceWithHeader<Term, Argument>>>),
     Lambda(Thin<Box<SliceWithHeader<Term, Argument>>>),
@@ -59,11 +60,19 @@ pub enum Term {
     Natural(u64),
 }
 
+#[derive(Clone, Debug)]
+pub struct GlobalRef {
+    pub ident: Ident,
+    pub sorts: Box<[Sort]>,
+    pub levels: Box<[Level]>,
+}
+
 impl core::fmt::Debug for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Variable(arg0) => f.debug_tuple("Variable").field(arg0).finish(),
             Self::Univ(arg0) => f.debug_tuple("Univ").field(arg0).finish(),
+            Self::GlobalRef(arg0) => f.debug_tuple("GlobalRef").field(arg0).finish(),
             Self::Forall(arg0) => f
                 .debug_struct("Forall")
                 .field("args", &&arg0.slice)

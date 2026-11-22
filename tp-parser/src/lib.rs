@@ -103,30 +103,57 @@ impl<'text> Parser<'text> {
         (a::Document { globals }, self.lexer.finish())
     }
 
+    fn parse_universe_params<T>(
+        &mut self,
+        f: impl Copy + core::ops::Fn(&mut Self) -> T,
+    ) -> (Vec<T>, Vec<T>) {
+        self.parse_universe_params2(f, f)
+    }
+
+    fn parse_universe_params2<T, U>(
+        &mut self,
+        s: impl core::ops::Fn(&mut Self) -> T,
+        l: impl core::ops::Fn(&mut Self) -> U,
+    ) -> (Vec<T>, Vec<U>) {
+        let mut sorts = Vec::new();
+        let mut levels = Vec::new();
+        self.parse(LCurly);
+        let mut is_sorts = true;
+        let mut needs_comma = false;
+        loop {
+            match self.lexer.peek() {
+                RCurly => break,
+                Slash if is_sorts => {
+                    self.parse(Slash);
+                    is_sorts = false;
+                    needs_comma = false;
+                }
+                Comma if needs_comma => {
+                    self.parse(Comma);
+                    needs_comma = false;
+                }
+                _ => {
+                    if needs_comma {
+                        break;
+                    }
+                    if is_sorts {
+                        sorts.push(s(self))
+                    } else {
+                        levels.push(l(self))
+                    }
+                    needs_comma = true;
+                }
+            }
+        }
+        self.parse(RCurly);
+
+        (sorts, levels)
+    }
+
     fn parse_axiom_prefix(&mut self) -> a::Axiom {
         let name = self.parse_ident();
         let (sorts, levels) = if self.try_parse(Period) {
-            let mut sorts = ustr::UstrSet::default();
-            let mut levels = ustr::UstrSet::default();
-            self.parse(LCurly);
-            let mut current = &mut sorts;
-            let mut is_sorts = true;
-            loop {
-                match self.lexer.peek() {
-                    RCurly => break,
-                    Slash if is_sorts => {
-                        self.parse(Slash);
-                        current = &mut levels;
-                        is_sorts = false;
-                    }
-                    Ident => {
-                        current.insert(self.parse_ident().val);
-                    }
-                    _ => self.unreachable(),
-                }
-            }
-            self.parse(RCurly);
-            (sorts, levels)
+            self.parse_universe_params(|this| this.parse_ident().val)
         } else {
             Default::default()
         };
@@ -251,7 +278,19 @@ impl<'text> Parser<'text> {
             }
             kind if is_ident!(check kind) => {
                 let name = self.parse_ident();
-                a::Term::Variable(name)
+                if self.try_parse(Period) {
+                    let (sorts, levels) = self.parse_universe_params2(
+                        |this| this.parse_univ_sort(UnivPrec::All),
+                        |this| this.parse_univ_level(UnivPrec::All),
+                    );
+                    a::Term::GlobalRef(Box::new(a::GlobalRef {
+                        ident: name,
+                        sorts: sorts.into(),
+                        levels: levels.into(),
+                    }))
+                } else {
+                    a::Term::Variable(name)
+                }
             }
             _ => self.unreachable(),
         }

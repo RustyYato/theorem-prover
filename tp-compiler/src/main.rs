@@ -23,11 +23,11 @@ fn main() -> eyre::Result {
 
 #[derive(Default)]
 struct NameResolver {
-    globals: ustr::UstrSet,
+    globals: ustr::UstrMap<(u16, u16)>,
     locals_map: ustr::UstrMap<Vec<usize>>,
     locals: Vec<Ustr>,
-    sort: ustr::UstrMap<u32>,
-    level: ustr::UstrMap<u32>,
+    sort: ustr::UstrMap<u16>,
+    level: ustr::UstrMap<u16>,
 }
 
 fn translate_doc(doc: &a::Document) -> k::Context {
@@ -38,24 +38,54 @@ fn translate_doc(doc: &a::Document) -> k::Context {
         nr.clear();
         match global {
             a::Global::Definition(definition) => {
+                let sorts = definition.sorts.len().try_into().unwrap();
+                let levels = definition.levels.len().try_into().unwrap();
+
+                for (i, sort) in definition.sorts.iter().enumerate() {
+                    nr.sort.insert(*sort, i as _);
+                }
+                for (i, sort) in definition.levels.iter().enumerate() {
+                    nr.level.insert(*sort, i as _);
+                }
+
                 ctx.add_definition(
                     definition.name.val,
                     nr.translate_term(0, &definition.expr),
                     nr.translate_term(0, &definition.ty),
                 );
-                nr.globals.insert(definition.name.val);
+                nr.globals.insert(definition.name.val, (sorts, levels));
             }
             a::Global::Opaque(definition) => {
+                let sorts = definition.sorts.len().try_into().unwrap();
+                let levels = definition.levels.len().try_into().unwrap();
+
+                for (i, sort) in definition.sorts.iter().enumerate() {
+                    nr.sort.insert(*sort, i as _);
+                }
+                for (i, sort) in definition.levels.iter().enumerate() {
+                    nr.level.insert(*sort, i as _);
+                }
+
                 ctx.add_opaque(
                     definition.name.val,
                     nr.translate_term(0, &definition.expr),
                     nr.translate_term(0, &definition.ty),
                 );
-                nr.globals.insert(definition.name.val);
+                nr.globals.insert(definition.name.val, (sorts, levels));
             }
             a::Global::Axiom(axiom) => {
+                let sorts = axiom.sorts.len().try_into().unwrap();
+                let levels = axiom.levels.len().try_into().unwrap();
+
+                for (i, sort) in axiom.sorts.iter().enumerate() {
+                    nr.sort.insert(*sort, i as _);
+                }
+                for (i, sort) in axiom.levels.iter().enumerate() {
+                    nr.level.insert(*sort, i as _);
+                }
+
                 ctx.add_axiom(axiom.name.val, nr.translate_term(0, &axiom.ty));
-                nr.globals.insert(axiom.name.val);
+                nr.globals.insert(axiom.name.val, (sorts, levels));
             }
         }
     }
@@ -77,30 +107,26 @@ impl NameResolver {
         }
     }
 
-    fn resolve(&self, ident: &a::Ident) -> Option<Result<usize, Ustr>> {
+    fn resolve(&self, ident: &a::Ident) -> Option<Result<usize, (Ustr, u16, u16)>> {
         self.resolve_local(ident).map(Ok).or_else(|| {
-            if self.globals.contains(&ident.val) {
-                Some(Err(ident.val))
+            if let Some((s, l)) = self.resolve_global(ident) {
+                Some(Err((ident.val, s, l)))
             } else {
                 None
             }
         })
     }
 
-    fn resolve_sort(&mut self, ident: &a::Ident) -> u32 {
-        let len = self.sort.len();
-        *self
-            .sort
-            .entry(ident.val)
-            .or_insert_with(|| len.try_into().unwrap())
+    fn resolve_global(&self, ident: &a::Ident) -> Option<(u16, u16)> {
+        self.globals.get(&ident.val).copied()
     }
 
-    fn resolve_level(&mut self, ident: &a::Ident) -> u32 {
-        let len = self.level.len();
-        *self
-            .level
-            .entry(ident.val)
-            .or_insert_with(|| len.try_into().unwrap())
+    fn resolve_sort(&mut self, ident: &a::Ident) -> u16 {
+        *self.sort.get(&ident.val).unwrap()
+    }
+
+    fn resolve_level(&mut self, ident: &a::Ident) -> u16 {
+        *self.level.get(&ident.val).unwrap()
     }
 
     fn exit_scope(&mut self, mark: usize) {
@@ -146,8 +172,38 @@ impl NameResolver {
         match term {
             a::Term::Variable(ident) => match self.resolve(ident) {
                 Some(Ok(term)) => k::Term::var(depth - term),
-                Some(Err(global)) => k::Term::global(global),
+                Some(Err((name, 0, 0))) => {
+                    k::Term::global(name, Default::default(), Default::default())
+                }
+                Some(Err((name, _, _))) => {
+                    panic!(
+                        "Tried to reference global ({name}) with sort or level parameters without supplying parameters"
+                    )
+                }
                 None => panic!("unresolved ident: {}", ident.val),
+            },
+            a::Term::GlobalRef(g) => match self.resolve_global(&g.ident) {
+                Some((s, l)) => {
+                    let name = g.ident.val;
+                    if g.sorts.len() != s as usize {
+                        panic!(
+                            "Tried to reference global ({name}) with the wrong number of sort parameters"
+                        )
+                    }
+
+                    if g.levels.len() != l as usize {
+                        panic!(
+                            "Tried to reference global ({name}) with the wrong number of level parameters"
+                        )
+                    }
+
+                    k::Term::global(
+                        name,
+                        g.sorts.iter().map(|s| self.translate_sort(s)).collect(),
+                        g.levels.iter().map(|l| self.translate_level(l)).collect(),
+                    )
+                }
+                None => panic!("unresolved global ident: {}", g.ident.val),
             },
             a::Term::Univ(universe) => k::Term::univ(self.translate_univ(universe)),
             a::Term::Forall(data) => {

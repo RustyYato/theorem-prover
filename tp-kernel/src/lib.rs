@@ -21,11 +21,18 @@ impl core::fmt::Debug for Term {
 #[derive(Clone, PartialEq, Eq)]
 enum TermRepr {
     Var(usize),
-    Global(ustr::Ustr),
+    Global(Arc<GlobalRef>),
     Univ(Universe),
     Lambda(Arc<[Term; 2]>),
     Forall(Arc<[Term; 2]>),
     Application(Arc<[Term; 2]>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GlobalRef {
+    name: Ustr,
+    sorts: Box<[Sort]>,
+    levels: Box<[Level]>,
 }
 
 impl core::fmt::Debug for TermRepr {
@@ -51,15 +58,32 @@ impl core::fmt::Debug for TermRepr {
 
 #[derive(Default, Debug)]
 pub struct Context {
-    types: Vec<Term>,
+    locals: Vec<Term>,
     globals: ustr::UstrMap<Global>,
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+struct UniverseParams {
+    sort_vars: u16,
+    level_vars: u16,
 }
 
 #[derive(Debug)]
 enum Global {
-    Definition { def: Term, ty: Term },
-    Opaque { def: Term, ty: Term },
-    Axiom { ty: Term },
+    Definition {
+        value: Term,
+        ty: Term,
+        params: UniverseParams,
+    },
+    Opaque {
+        value: Term,
+        ty: Term,
+        params: UniverseParams,
+    },
+    Axiom {
+        ty: Term,
+        params: UniverseParams,
+    },
 }
 
 #[derive(Debug)]
@@ -73,6 +97,7 @@ pub enum TypeError {
 
 impl Context {
     pub fn add_definition(&mut self, name: Ustr, term: Term, ty: Term) {
+        assert!(self.locals.is_empty());
         let t = term.type_of(self);
         if !t.as_ref().is_ok_and(|t| t.is_defeq(&ty, self)) {
             eprintln!("{ty:#?}");
@@ -92,12 +117,19 @@ impl Context {
                 panic!("duplicate global name")
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(Global::Definition { def: term, ty });
+                let params = term.universe_params().max(ty.universe_params());
+
+                entry.insert(Global::Definition {
+                    value: term,
+                    ty,
+                    params,
+                });
             }
         }
     }
 
     pub fn add_opaque(&mut self, name: Ustr, term: Term, ty: Term) {
+        assert!(self.locals.is_empty());
         let t = term.type_of(self);
         if !t.as_ref().is_ok_and(|t| t.is_defeq(&ty, self)) {
             eprintln!("{ty:#?}");
@@ -117,12 +149,19 @@ impl Context {
                 panic!("duplicate global name")
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(Global::Opaque { def: term, ty });
+                let params = term.universe_params().max(ty.universe_params());
+
+                entry.insert(Global::Opaque {
+                    value: term,
+                    ty,
+                    params,
+                });
             }
         }
     }
 
     pub fn add_axiom(&mut self, name: Ustr, ty: Term) {
+        assert!(self.locals.is_empty());
         if !ty.type_of(self).is_ok_and(|t| t.is_univ()) {
             panic!("expected a type but found: {ty:?}")
         }
@@ -132,7 +171,9 @@ impl Context {
                 panic!("duplicate global name")
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(Global::Axiom { ty });
+                let params = ty.universe_params();
+
+                entry.insert(Global::Axiom { ty, params });
             }
         }
     }
@@ -141,9 +182,33 @@ impl Context {
 impl Global {
     fn ty(&self) -> &Term {
         match self {
-            Global::Definition { def: _, ty }
-            | Global::Opaque { def: _, ty }
-            | Global::Axiom { ty } => ty,
+            Global::Definition {
+                value: _,
+                ty,
+                params: _,
+            }
+            | Global::Opaque {
+                value: _,
+                ty,
+                params: _,
+            }
+            | Global::Axiom { ty, params: _ } => ty,
+        }
+    }
+
+    fn params(&self) -> UniverseParams {
+        match self {
+            Global::Definition {
+                value: _,
+                ty: _,
+                params,
+            }
+            | Global::Opaque {
+                value: _,
+                ty: _,
+                params,
+            }
+            | Global::Axiom { ty: _, params } => *params,
         }
     }
 }
@@ -155,9 +220,13 @@ impl Term {
         }
     }
 
-    pub fn global(id: Ustr) -> Self {
+    pub fn global(name: Ustr, sorts: Box<[Sort]>, levels: Box<[Level]>) -> Self {
         Self {
-            repr: TermRepr::Global(id),
+            repr: TermRepr::Global(Arc::new(GlobalRef {
+                name,
+                sorts,
+                levels,
+            })),
         }
     }
 
@@ -229,7 +298,7 @@ impl Term {
                     TermRepr::Var(i + skipped_binders)
                 }
             }
-            TermRepr::Global(ustr) => TermRepr::Global(*ustr),
+            TermRepr::Global(ustr) => TermRepr::Global(ustr.clone()),
             TermRepr::Univ(universe) => TermRepr::Univ(universe.clone()),
             TermRepr::Lambda(lam) => {
                 let repr = Self::weaken_pair_by(lam, var, var + 1, skipped_binders);
@@ -267,7 +336,7 @@ impl Term {
                 std::cmp::Ordering::Greater => TermRepr::Var(*i),
                 std::cmp::Ordering::Equal => return subst.weaken_by(0, skipped_binders),
             },
-            TermRepr::Global(name) => TermRepr::Global(*name),
+            TermRepr::Global(name) => TermRepr::Global(name.clone()),
             TermRepr::Univ(universe) => TermRepr::Univ(universe.clone()),
             TermRepr::Lambda(lam) => TermRepr::Lambda(Self::subst_pair_by(
                 lam,
@@ -318,12 +387,14 @@ impl Term {
                 TermRepr::Global(ustr) => {
                     return ctx
                         .globals
-                        .get(ustr)
+                        .get(&ustr.name)
                         .map(|ty| match ty {
-                            Global::Definition { def, ty: _ } => def.clone(),
-                            Global::Opaque { def: _, ty: _ } | Global::Axiom { ty: _ } => {
-                                this.into_owned()
-                            }
+                            Global::Definition {
+                                value: def,
+                                ty: _,
+                                params: _,
+                            } => def.clone(),
+                            Global::Opaque { .. } | Global::Axiom { .. } => this.into_owned(),
                         })
                         .ok_or(TypeError::MissingGlobalVariable);
                 }
@@ -362,8 +433,8 @@ impl Term {
     }
 
     pub fn type_of(&self, ctx: &mut Context) -> Result<Term, TypeError> {
-        assert_eq!(ctx.types.len(), 0);
-        let mut guard = DropGuard::new(ctx, |ctx| ctx.types.clear());
+        assert_eq!(ctx.locals.len(), 0);
+        let mut guard = DropGuard::new(ctx, |ctx| ctx.locals.clear());
 
         self.type_(&mut guard)
     }
@@ -372,8 +443,8 @@ impl Term {
         match self.repr {
             TermRepr::Var(idx) => {
                 let ty = ctx
-                    .types
-                    .get(ctx.types.len() - idx - 1)
+                    .locals
+                    .get(ctx.locals.len() - idx - 1)
                     .cloned()
                     .ok_or(TypeError::UnboundLocalVariable)?;
 
@@ -383,9 +454,9 @@ impl Term {
 
                 Ok(ty.weaken_by(0, idx + 1))
             }
-            TermRepr::Global(name) => ctx
+            TermRepr::Global(ref g) => ctx
                 .globals
-                .get(&name)
+                .get(&g.name)
                 .map(|x| x.ty().clone())
                 .ok_or(TypeError::MissingGlobalVariable),
             TermRepr::Univ(ref universe) => Ok(Term {
@@ -400,9 +471,9 @@ impl Term {
                     return Err(TypeError::ExpectedUniv { found: arg_sort });
                 }
 
-                ctx.types.push(arg_ty.clone());
+                ctx.locals.push(arg_ty.clone());
                 let body_ty = body.type_(ctx)?;
-                ctx.types.pop();
+                ctx.locals.pop();
 
                 Ok(Term {
                     repr: TermRepr::Forall(Arc::new([arg_ty.clone(), body_ty])),
@@ -412,9 +483,9 @@ impl Term {
                 let [arg_ty, body_ty] = &**forall;
 
                 let arg_sort = arg_ty.type_(ctx)?;
-                ctx.types.push(arg_ty.clone());
+                ctx.locals.push(arg_ty.clone());
                 let body_sort = body_ty.type_(ctx)?;
-                ctx.types.pop();
+                ctx.locals.pop();
 
                 let u = match (arg_sort.repr, body_sort.repr) {
                     (TermRepr::Univ(a), TermRepr::Univ(b)) => Universe {
@@ -461,5 +532,40 @@ impl Term {
                 Ok(ret_ty.subst(0, &app_arg_ty, 0))
             }
         }
+    }
+
+    fn universe_params(&self) -> UniverseParams {
+        match &self.repr {
+            TermRepr::Var(_) => Default::default(),
+            TermRepr::Global(g) => g
+                .sorts
+                .iter()
+                .map(Sort::universe_params)
+                .chain(g.levels.iter().map(Level::universe_params))
+                .collect(),
+            TermRepr::Univ(universe) => universe
+                .sort
+                .universe_params()
+                .max(universe.level.universe_params()),
+            TermRepr::Lambda(t) | TermRepr::Forall(t) | TermRepr::Application(t) => {
+                t[0].universe_params().max(t[1].universe_params())
+            }
+        }
+    }
+}
+
+impl UniverseParams {
+    fn max(self, other: Self) -> Self {
+        Self {
+            sort_vars: self.sort_vars.max(other.sort_vars),
+            level_vars: self.level_vars.max(other.level_vars),
+        }
+    }
+}
+
+impl FromIterator<Self> for UniverseParams {
+    #[inline]
+    fn from_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
+        iter.into_iter().fold(Default::default(), Self::max)
     }
 }

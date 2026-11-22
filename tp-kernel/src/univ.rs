@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 
 use triomphe::Arc;
 
+use crate::UniverseParams;
+
 const ENABLE_NORMALIZATION: bool = !cfg!(tp_disable_normalize);
 
 #[derive(Clone)]
@@ -20,7 +22,7 @@ enum SortKind {
     SProp,
     Prop,
     Type,
-    Param(u32),
+    Param(u16),
     Trunc(Arc<Sort>),
     Max(Arc<Sort>, Arc<Sort>),
 }
@@ -41,7 +43,7 @@ impl core::fmt::Debug for Level {
 #[derive(Debug, Clone)]
 enum LevelKind {
     Zero,
-    Param(u32),
+    Param(u16),
     Add(Arc<Level>, u16),
     When(Arc<Sort>, Arc<Level>),
     Max(Arc<Level>, Arc<Level>),
@@ -210,7 +212,7 @@ impl Sort {
         }
     }
 
-    pub const fn param(i: u32) -> Sort {
+    pub const fn param(i: u16) -> Sort {
         Self {
             kind: SortKind::Param(i),
         }
@@ -251,6 +253,18 @@ impl Sort {
 
         Self {
             kind: SortKind::Max(Arc::new(self), Arc::new(other)),
+        }
+    }
+
+    pub(super) fn universe_params(&self) -> UniverseParams {
+        match &self.kind {
+            SortKind::SProp | SortKind::Prop | SortKind::Type => Default::default(),
+            SortKind::Param(i) => UniverseParams {
+                sort_vars: *i + 1,
+                level_vars: 0,
+            },
+            SortKind::Trunc(sort) => sort.universe_params(),
+            SortKind::Max(a, b) => a.universe_params().max(b.universe_params()),
         }
     }
 
@@ -350,7 +364,7 @@ impl Level {
         }
     }
 
-    pub fn param(i: u32) -> Self {
+    pub fn param(i: u16) -> Self {
         Self {
             minv: 0,
             maxv: 0,
@@ -429,6 +443,19 @@ impl Level {
             minv,
             maxv: self.maxv,
             kind: LevelKind::When(Arc::new(cond), Arc::new(self)),
+        }
+    }
+
+    pub(super) fn universe_params(&self) -> UniverseParams {
+        match &self.kind {
+            LevelKind::Zero => Default::default(),
+            LevelKind::Param(i) => UniverseParams {
+                sort_vars: 0,
+                level_vars: *i + 1,
+            },
+            LevelKind::Add(a, _) => a.universe_params(),
+            LevelKind::When(a, b) => a.universe_params().max(b.universe_params()),
+            LevelKind::Max(a, b) => a.universe_params().max(b.universe_params()),
         }
     }
 
