@@ -46,6 +46,7 @@ impl<'text> Parser<'text> {
         }
     }
 
+    #[track_caller]
     fn parse(&mut self, kind: Kind) -> Token<'text> {
         let token = self.lexer.lex();
 
@@ -340,7 +341,9 @@ impl<'text> Parser<'text> {
 
                 self.parse(Max);
                 let mut sorts = Vec::new();
-                while is_ident!(check self.lexer.peek()) {
+                while is_ident!(check self.lexer.peek())
+                    | matches!(self.lexer.peek(), Prop | Type | SProp)
+                {
                     sorts.push(self.parse_univ_sort(UnivPrec::Bound));
                 }
                 a::Sort::max(sorts)
