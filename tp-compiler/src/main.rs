@@ -15,7 +15,7 @@ fn main() -> eyre::Result {
     let file = fs_err::read(args.path)?;
     let parser = tp_parser::Parser::new(&file);
     let (doc, _newlines) = parser.parse_file();
-    dbg!(&doc);
+    // dbg!(&doc);
     let ctx = translate_doc(&doc);
     dbg!(ctx);
     Ok(())
