@@ -345,7 +345,7 @@ impl Sort {
         }
     }
 
-    fn subst_all(&self, g: &super::GlobalRef) -> Self {
+    pub(super) fn subst_all(&self, g: &super::GlobalRef) -> Self {
         match &self.kind {
             SortKind::SProp | SortKind::Prop | SortKind::Type => self.clone(),
             SortKind::Param(i) => g.sorts[*i as usize].clone(),
@@ -530,7 +530,7 @@ impl Level {
         self.le_(other, 0)
     }
 
-    fn subst_all(&self, g: &super::GlobalRef) -> Self {
+    pub(super) fn subst_all(&self, g: &super::GlobalRef) -> Self {
         match &self.kind {
             LevelKind::Zero => self.clone(),
             LevelKind::Param(i) => g.levels[*i as usize].clone(),

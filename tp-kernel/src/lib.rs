@@ -36,7 +36,11 @@ struct GlobalRef {
 }
 impl GlobalRef {
     fn subst_all(&self, g: &GlobalRef) -> GlobalRef {
-        todo!()
+        Self {
+            name: self.name,
+            sorts: self.sorts.iter().map(|s| s.subst_all(g)).collect(),
+            levels: self.levels.iter().map(|l| l.subst_all(g)).collect(),
+        }
     }
 }
 
@@ -167,8 +171,9 @@ impl Context {
 
     pub fn add_axiom(&mut self, name: Ustr, ty: Term) {
         assert!(self.locals.is_empty());
-        if !ty.type_of(self).is_ok_and(|t| t.is_univ()) {
-            panic!("expected a type but found: {ty:?}")
+        let ty_ty = ty.type_of(self);
+        if !ty_ty.as_ref().is_ok_and(|t| t.is_univ()) {
+            panic!("expected a type but found: {ty:#?} => {ty_ty:#?}")
         }
 
         match self.globals.entry(name) {
@@ -311,7 +316,7 @@ impl Term {
             }
             TermRepr::Forall(forall) => {
                 let repr = Self::weaken_pair_by(forall, var, var + 1, skipped_binders);
-                TermRepr::Lambda(repr)
+                TermRepr::Forall(repr)
             }
             TermRepr::Application(app) => {
                 let repr = Self::weaken_pair_by(app, var, var, skipped_binders);
@@ -324,13 +329,17 @@ impl Term {
 
     fn subst_pair_by(
         pair: &Arc<[Term; 2]>,
-        var_arg: usize,
-        var_body: usize,
+        var: usize,
         subst: &Self,
         skipped_binders: usize,
+        introduces_arg: bool,
     ) -> Arc<[Term; 2]> {
-        let arg_ty = pair[0].subst_(var_arg, subst, skipped_binders);
-        let body = pair[1].subst_(var_body, subst, skipped_binders);
+        let arg_ty = pair[0].subst_(var, subst, skipped_binders);
+        let body = pair[1].subst_(
+            var + usize::from(introduces_arg),
+            subst,
+            skipped_binders + usize::from(introduces_arg),
+        );
         Self::merge_pair_by(pair, arg_ty, body)
     }
 
@@ -343,22 +352,18 @@ impl Term {
             },
             TermRepr::Global(name) => TermRepr::Global(name.clone()),
             TermRepr::Univ(universe) => TermRepr::Univ(universe.clone()),
-            TermRepr::Lambda(lam) => TermRepr::Lambda(Self::subst_pair_by(
-                lam,
-                var,
-                var + 1,
-                subst,
-                skipped_binders,
-            )),
+            TermRepr::Lambda(lam) => {
+                TermRepr::Lambda(Self::subst_pair_by(lam, var, subst, skipped_binders, true))
+            }
             TermRepr::Forall(forall) => TermRepr::Forall(Self::subst_pair_by(
                 forall,
                 var,
-                var + 1,
                 subst,
                 skipped_binders,
+                true,
             )),
             TermRepr::Application(app) => {
-                TermRepr::Forall(Self::subst_pair_by(app, var, var, subst, skipped_binders))
+                TermRepr::Application(Self::subst_pair_by(app, var, subst, skipped_binders, false))
             }
         };
 
@@ -564,7 +569,7 @@ impl Term {
                     });
                 }
 
-                Ok(ret_ty.subst(0, &app_arg_ty, 0))
+                Ok(ret_ty.subst(0, &arg, 0))
             }
         }
     }
