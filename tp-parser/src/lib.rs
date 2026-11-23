@@ -123,8 +123,8 @@ impl<'text> Parser<'text> {
         loop {
             match self.lexer.peek() {
                 RCurly => break,
-                Slash if is_sorts => {
-                    self.parse(Slash);
+                Pipe if is_sorts => {
+                    self.parse(Pipe);
                     is_sorts = false;
                     needs_comma = false;
                 }

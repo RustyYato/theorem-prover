@@ -75,8 +75,8 @@ pub enum Kind {
     LCurly,
     #[token("}")]
     RCurly,
-    #[token("/")]
-    Slash,
+    #[token("|")]
+    Pipe,
     #[token("/-")]
     CommentStart,
     #[token("-/")]
